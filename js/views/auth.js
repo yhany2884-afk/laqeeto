@@ -149,7 +149,9 @@ export async function techSignupView(el) {
       });
       obs.disconnect();
       if (res?.needsConfirmation) { toast('أكّد إيميلك وبعدين سجّل دخول عشان ترفع المستندات', 'ok', 8000); go('#/login'); return; }
-      toast('طلبك وصل. هنراجعه ونبلغك', 'ok');
+      btn.innerHTML = '<span class="spinner"></span> بنقارن السيلفي بصورة البطاقة…';
+      const fm = await db.runFaceMatch();
+      toast(fm?.approved ? 'تمام! حسابك اتفعّل وتقدر تبدأ تفحص الأجهزة' : 'طلبك وصل. هنراجعه ونبلغك', 'ok', 6000);
       window.dispatchEvent(new Event('auth-changed'));
       go('#/tech');
     } catch (e2) { toast(e2.message, 'error'); } finally { btn.disabled = false; btn.textContent = 'ابعت طلب التسجيل'; }

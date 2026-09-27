@@ -5,6 +5,15 @@ import { $, $$, go, toast, badge, statusBadge, photoField, bindPhotoFields, chec
 import { icon } from '../icons.js';
 import { startMessageFlow } from './public.js';
 
+// Pending screen: what happened to the automatic selfie ↔ ID check (the score itself is only shown to admins).
+function faceStep(fm) {
+  const st = fm?.status;
+  const [ok, text] = st === 'match' ? [true, 'السيلفي مطابق لصورة البطاقة']
+    : st && st !== 'pending' ? [false, 'مقارنة السيلفي بالبطاقة: فريق لقيته هيراجعها بنفسه']
+      : [false, 'مقارنة السيلفي بصورة البطاقة'];
+  return `<li class="${ok ? 'done' : 'wait'}" data-testid="facematch-step" data-status="${esc(st || 'none')}">${icon(ok ? 'circle-check' : 'clock', { size: 20 })}<span>${text}</span></li>`;
+}
+
 function statusScreen(user) {
   const t = user.tech;
   const st = TECH_STATUS[t.status];
@@ -16,7 +25,7 @@ function statusScreen(user) {
         ${step(true, 'بياناتك وبيانات المحل')}
         ${step(hasDocs, 'صورة البطاقة والسكرين شوت')}
         ${step(hasDocs, 'السيلفي')}
-        ${step(false, 'مقارنة السيلفي بصورة البطاقة', 'data-testid="facematch-placeholder"')}
+        ${faceStep(t.faceMatch)}
         ${step(false, 'مراجعة فريق لقيته')}
       </ol>`,
     rejected: `<h2>طلبك اترفض</h2>${t.reviewNote ? alertBox('danger', 'circle-x', `<b>السبب:</b> ${esc(t.reviewNote)}`) : ''}<p class="muted">صحّح البيانات وارفع المستندات تاني تحت.</p>`,
@@ -44,8 +53,11 @@ function docsForm(el, user) {
     if (!checkPhotoFields(f, state)) return toast('محتاجين الصور التلاتة', 'error');
     const btn = f.querySelector('button[type=submit]'); btn.disabled = true;
     try {
+      btn.innerHTML = '<span class="spinner"></span> بنرفع المستندات…';
       await db.submitTechnicianDocuments({ idPhoto: state.idPhoto, deviceShot: state.deviceShot, selfie: state.selfie, selfieMethod: state.selfieMethod });
-      toast('المستندات وصلت. طلبك بيتراجع', 'ok');
+      btn.innerHTML = '<span class="spinner"></span> بنقارن السيلفي بصورة البطاقة…';
+      const fm = await db.runFaceMatch();
+      toast(fm?.approved ? 'تمام! حسابك اتفعّل' : 'المستندات وصلت. طلبك بيتراجع', 'ok');
       window.dispatchEvent(new Event('auth-changed'));
       go('#/tech');
     } catch (err) { toast(err.message, 'error'); btn.disabled = false; }

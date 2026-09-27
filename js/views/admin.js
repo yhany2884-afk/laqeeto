@@ -28,6 +28,26 @@ export async function adminView(el, { query }) {
   hydrateImages(body);
 }
 
+const FM_TEXT = {
+  match: ['ok', 'circle-check', 'السيلفي مطابق للبطاقة'],
+  no_match: ['danger', 'circle-x', 'السيلفي مش مطابق للبطاقة، راجع بنفسك'],
+  no_face_id: ['warn', 'triangle-alert', 'مفيش وش واضح في صورة البطاقة'],
+  no_face_selfie: ['warn', 'triangle-alert', 'مفيش وش واضح في السيلفي'],
+  multiple_faces_selfie: ['warn', 'triangle-alert', 'فيه أكتر من شخص في السيلفي'],
+  error: ['neutral', 'circle-alert', 'المقارنة التلقائية ما اشتغلتش'],
+  pending: ['neutral', 'clock', 'المقارنة التلقائية لسه ما خلصتش'],
+};
+function faceMatchBox(t) {
+  const fm = t.tech.faceMatch;
+  const [cls, ic, text] = FM_TEXT[fm?.status] || ['neutral', 'scan-face', 'لسه ما اتعملش مقارنة تلقائية'];
+  const score = typeof fm?.score === 'number' ? ` <span class="mono" dir="ltr">${Math.round(fm.score * 100)}%</span>` : '';
+  const auto = fm?.auto_approved ? '<div class="xsmall">اتفعّل تلقائياً عشان التطابق واضح.</div>' : '';
+  const when = fm?.checked_at ? `<div class="xsmall muted">${fmtDateTime(fm.checked_at)}</div>` : '';
+  return `<div class="fm-result" data-testid="facematch-result" data-status="${esc(fm?.status || 'none')}">
+    ${alertBox(cls, ic, `<b>${text}</b>${score}${auto}${when}<div class="xsmall muted">المقارنة التلقائية مساعدة بس. بص على الصورتين بنفسك.</div>`)}
+    <button class="btn btn-sm btn-ghost" data-rerun-fm="${t.id}">${icon('refresh-cw', { size: 16 })} قارن تاني</button></div>`;
+}
+
 function techCard(t, actions) {
   const st = TECH_STATUS[t.tech.status];
   return `<article class="card tech-card" data-testid="tech-card" data-email="${esc(t.email)}">
@@ -44,7 +64,7 @@ function techCard(t, actions) {
       <figure>${fileImg(t.tech.selfie, 'السيلفي')}<figcaption>السيلفي</figcaption></figure>
       <figure>${fileImg(t.tech.deviceShot, 'سكرين شوت الـ IMEI')}<figcaption>سكرين شوت الـ IMEI</figcaption></figure>
     </div>
-    ${alertBox('neutral', 'scan-face', 'قارن وش السيلفي بصورة البطاقة بنفسك قبل الاعتماد.')}
+    ${faceMatchBox(t)}
     <div class="btn-row">${actions}</div></article>`;
 }
 function bindTechActions(root, refresh) {
@@ -56,7 +76,24 @@ function bindTechActions(root, refresh) {
       if (note === null) return;
     } else if (!(await confirmDialog(act === 'approve' ? 'تعتمد الفني ده وتفعّل حسابه؟' : 'ترجّع تفعيل الفني ده؟', { okLabel: act === 'approve' ? 'اعتمد' : 'فعّل' }))) return;
     try { await db.reviewTechnician(id, act, note); toast('اتحفظ', 'ok'); refresh(); } catch (e) { toast(e.message, 'error'); }
+  }));  $$('[data-rerun-fm]', root).forEach((b) => b.addEventListener('click', async () => {
+    b.disabled = true; b.innerHTML = '<span class="spinner"></span> بنقارن…';
+    const r = await db.runFaceMatch(b.dataset.rerunFm);
+    if (r?.error) toast(FM_ERR[r.error] || FM_ERR.failed, 'error'); else toast('المقارنة خلصت', 'ok');
+    refresh();
   }));
+}
+const FM_ERR = { rate_limited: 'اتعملت مقارنات كتير للفني ده. جرّب بعد ساعة', unavailable: 'المقارنة التلقائية مش متاحة دلوقتي', timeout: 'المقارنة خدت وقت طويل. جرّب تاني', failed: 'المقارنة ما اشتغلتش. جرّب تاني' };
+// pending technicians whose automatic check never ran (e.g. they closed the app right after uploading)
+async function autoRunMissing(list, refresh) {
+  const stale = (t) => !t.tech.faceMatch || (t.tech.faceMatch.status === 'pending' && Date.now() - (t.tech.submittedAt || 0) > 120000);
+  let ran = 0;
+  for (const t of list.filter(stale).slice(0, 5)) {
+    const r = await db.runFaceMatch(t.id);
+    if (r?.error === 'unavailable' || r?.error === 'network') break;
+    ran++;
+  }
+  if (ran) refresh();
 }
 
 async function verifyTab(body, refresh) {
@@ -64,6 +101,7 @@ async function verifyTab(body, refresh) {
   body.innerHTML = list.length ? list.map((t) => techCard(t, `
     <button class="btn btn-success" data-tech-act="approve" data-id="${t.id}">${icon('check', { size: 18 })} اعتمد</button>
     <button class="btn btn-danger-outline" data-tech-act="reject" data-id="${t.id}">${icon('x', { size: 18 })} ارفض</button>`)).join('') : emptyState('clipboard-check', 'مفيش طلبات مستنية', { text: 'أي فني جديد يسجّل هيظهر هنا للمراجعة.' });
+  if (list.length && !verifyTab.autoRan) { verifyTab.autoRan = true; autoRunMissing(list, refresh); }
   bindTechActions(body, refresh);
 }
 async function techsTab(body, refresh) {

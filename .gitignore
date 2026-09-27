@@ -13,3 +13,4 @@ native/dist/
 native/out/
 *.jks
 *.keystore
+.models/

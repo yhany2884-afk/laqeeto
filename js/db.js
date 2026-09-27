@@ -383,6 +383,25 @@ export const db = {
       .map((l) => ({ id: l.id, at: ts(l.at), actorName: l.actor_name, actorRole: l.actor_role, action: l.action, details: l.details }));
   },
   async stats() { return rpc('admin_stats'); },
+  /** Selfie ↔ ID comparison (Edge Function "face-match"). Technicians: own documents; admins: pass a userId.
+   *  Resolves to { checked, approved } for technicians, the full result for admins, or { error } — never throws. */
+  async runFaceMatch(userId = null, { timeoutMs = 30000 } = {}) {
+    try {
+      const { data } = await client().auth.getSession();
+      const token = data?.session?.access_token;
+      if (!token) return { error: 'auth' };
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), timeoutMs);
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/face-match`, {
+        method: 'POST', signal: ctl.signal,
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(userId ? { user_id: userId } : {}),
+      }).finally(() => clearTimeout(t));
+      const body = await res.json().catch(() => ({}));
+      profileAt = 0;
+      if (!res.ok) return { error: res.status === 429 ? 'rate_limited' : res.status === 404 ? 'unavailable' : 'failed', status: res.status };
+      return body;
+    } catch (e) { return { error: e?.name === 'AbortError' ? 'timeout' : 'network' }; }
+  },
 };
 
 export default db;

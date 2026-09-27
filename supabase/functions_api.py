@@ -34,7 +34,7 @@ def req(method, path, body=None, raw=None, ctype='application/json'):
         return e.code, e.read().decode(errors='replace')[:2000]
 
 def deploy(d, slug, verify_jwt=True):
-    d = Path(d); files = sorted(p for p in d.rglob('*') if p.is_file() and p.suffix in ('.ts', '.js', '.json', '.mjs'))
+    d = Path(d); files = sorted(p for p in d.rglob('*') if p.is_file() and p.suffix in ('.ts', '.js', '.json', '.mjs') and not p.name.endswith(('.test.ts', '.test.js')))
     meta = {'entrypoint_path': 'index.ts', 'name': slug, 'verify_jwt': verify_jwt}
     b = uuid.uuid4().hex; parts = []
     parts.append(f'--{b}\r\nContent-Disposition: form-data; name="metadata"\r\nContent-Type: application/json\r\n\r\n{json.dumps(meta)}\r\n'.encode())

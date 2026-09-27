@@ -3,7 +3,7 @@
 
 🌐 **التطبيق المباشر:** https://yhany2884-afk.github.io/laqeeto/
 
-> ⚠️ **نسخة تجريبية (Prototype):** البيانات الآن **مشتركة بين كل الأجهزة** (Supabase: Postgres + Auth + Storage) لكن المشروع على الخطة المجانية، والحسابات التجريبية مشتركة للجميع، ومطابقة الوجه محاكاة. لا تستخدمه لبيانات حقيقية حساسة.
+> ⚠️ **نسخة تجريبية (Prototype):** البيانات الآن **مشتركة بين كل الأجهزة** (Supabase: Postgres + Auth + Storage) لكن المشروع على الخطة المجانية. لا تستخدمه لبيانات حقيقية حساسة.
 
 ## ⬇️ تحميل التطبيق
 | الجهاز | ملف التثبيت |
@@ -167,6 +167,33 @@ npx @capacitor/assets generate --android --ios   # إعادة توليد الأ�
 - **أنيميشن الفتح/القفل:** CSS/SVG داخل `index.html` (مرة واحدة لكل تشغيل، تقدر تتخطاه، وبيحترم `prefers-reduced-motion`)،
   وأنيميشن الخروج في `js/splash.js` (عند تسجيل الخروج، وعند قفل شباك تطبيق الكمبيوتر). لون شاشة البداية في أندرويد وآيفون والكمبيوتر هو نفس لون الأنيميشن عشان مفيش وميض أبيض.
 
+## مطابقة الوجه (السيلفي ↔ صورة البطاقة)
+
+- **إزاي بتشتغل:** بعد ما الفني يرفع المستندات، التطبيق بينادي Edge Function اسمها `face-match` (`supabase/functions/face-match/`).
+  الـ function بتنزّل صورة البطاقة والسيلفي من الـ Storage، وبتدوّر على الوش بـ **YuNet** وتعدّله (alignment) وتطلع بصمة للوش بـ **SFace** (موديلات OpenCV Zoo، رخص MIT وApache-2.0، مجانية)، وبعدين بتحسب التشابه (cosine).
+  مفيش أي خدمة خارجية ولا فلوس، كله شغال على الخطة المجانية. الصور مش بتتخزن في أي مكان تاني، والبصمة نفسها مش بتتحفظ، بيتحفظ الناتج بس (الحالة والدرجة) في `profiles.tech_face_match`.
+- **القرار في قاعدة البيانات مش في الـ function:** الـ function بتبعت النتيجة لـ `record_face_match` (service role بس)، وهي اللي بتطبّق السياسة من `private.settings`:
+  - اعتماد تلقائي **بس** لو: الفني pending، والحالة `match`، والدرجة ≥ `auto_min_score` (0.5)، ووش البطاقة ≥ 40px ووش السيلفي ≥ 80px، والسيلفي من الكاميرا مباشرة.
+  - أي حاجة تانية (درجة ضعيفة، مفيش وش، أكتر من شخص، عطل) ← **مراجعة يدوية**. مفيش رفض تلقائي أبداً.
+  - كل مقارنة وكل اعتماد تلقائي بيتسجلوا في `audit_log`. الفني بيعرف بس لو اتفعّل ولا لأ، والدرجة للأدمن بس.
+  - حد أقصى 10 مقارنات للفني في الساعة. النتيجة القديمة بتتجاهل لو الفني غيّر المستندات في النص.
+  - لإيقاف الاعتماد التلقائي: `update private.settings set value = jsonb_set(value, '{auto_approve}', 'false') where key = 'face_match';`
+- **الموديلات** في bucket خاص `ml-models` (مفيش أي policy للعملاء): `python3 supabase/upload_models.py` (التعليمات جوه الملف).
+- **النشر:** `SUPABASE_TOKEN_FILE=... python3 supabase/functions_api.py deploy supabase/functions/face-match face-match` (التوكن محتاج صلاحية `edge_functions_write`).
+- **الاختبارات:** `FACE_FIXTURES=<dir> deno test -A supabase/functions/face-match/handler.test.ts` (الـ auth والصلاحيات والمطابقة بصور حقيقية مع mock للـ API)، و`python3 tests/face_match_db_test.py` (سياسة الاعتماد في قاعدة البيانات).
+- **حدود:** مفيش liveness حقيقي (غير إن السيلفي لازم يتصوّر من الكاميرا جوه التطبيق)، وصور البطايق القديمة أو الصغيرة بتدي درجات أقل، فبتروح للمراجعة اليدوية. المطابقة بتثبت إن اللي في السيلفي هو صاحب الصورة اللي في البطاقة، مش إن البطاقة نفسها سليمة.
+
+## بوت تيليجرام (@laqeeto_help_bot)
+
+- **الكود:** `supabase/functions/telegram-bot/` (Edge Function بـ webhook، `verify_jwt=false`؛ الحماية بالـ header `X-Telegram-Bot-Api-Secret-Token`). الكلام كله في `texts.ts`.
+- **القائمة (`/start`):** إزاي أبلّغ، افحص IMEI، تسجيل الفنيين، أسئلة شائعة، كلّم الدعم، ولينكات للتطبيق وصفحة التحميل.
+- **فحص IMEI:** بيرجّع الحالة بس (متبلّغ عنه ولا لأ، الماركة والموديل والتاريخ)، **من غير أي بيانات عن المالك**. حد أقصى 10 فحوصات كل 10 دقايق و60 في اليوم لكل محادثة. بيقبل أرقام عربي.
+- **الدعم:** رسالة العميل بتتحوّل لحساب الأدمن مع اسمه، والأدمن يعمل Reply على الرسالة والبوت يوصّل الرد للعميل (نص أو صورة). حد أقصى 20 رسالة في الساعة لكل عميل.
+- **تسجيل الأدمن بأمان:** من حساب الأدمن ابعت `/claim <code>` مرة واحدة (الكود في secret `TELEGRAM_ADMIN_CLAIM_CODE`، ومقارنته constant-time، و5 محاولات في الساعة، والرسالة اللي فيها الكود بتتمسح). بعد ما حد يعمل claim محدش تاني يقدر لحد ما الأدمن يبعت `/release`. بديل: secret `TELEGRAM_ADMIN_CHAT_ID` بيثبّت الأدمن ويقفل `/claim`.
+- **الأسرار:** `TELEGRAM_BOT_TOKEN` و`TELEGRAM_WEBHOOK_SECRET` و`TELEGRAM_ADMIN_CLAIM_CODE` في secrets الـ function بس. قاعدة البيانات مبتشوفش التوكن. كل الـ RPCs بتاعة البوت (`bot_*`) service role بس.
+- **النشر (function + secrets + webhook مرة واحدة):** `SUPABASE_TOKEN_FILE=... LAQEETO_CREDS=... python3 supabase/setup_edge.py` (التوكن محتاج `edge_functions_write` و`edge_functions_secrets_write`).
+- **الاختبارات:** `deno test -A supabase/functions/telegram-bot/bot.test.ts` (Telegram وSupabase عاملين mock).
+
 ## الاختبارات
 
 - `tests/security_attack_test.py`: اختبارات هجوم على الـ API (صلاحيات، رفع ملفات، XSS، rate limit).
@@ -178,7 +205,6 @@ npx @capacitor/assets generate --android --ios   # إعادة توليد الأ�
 - `supabase/functions_api.py`: نشر Edge Functions وضبط الـ secrets عن طريق Management API (التوكن بيتقري من متغير بيئة أو ملف، ومبيتطبعش).
 
 ## القيود الحالية
-- مطابقة الوجه بين السيلفي والبطاقة **محاكاة** — المراجعة يدوية من الدعم.
 - فيديو الإثبات في النزاعات يُحفظ **كاسم ملف فقط** (لا يُرفع الفيديو).
 - الرسائل تتحدث بالاستطلاع كل 6 ثوانٍ (وليس Realtime) ولا توجد إشعارات Push بعد.
 - المشروع قد يتوقف بعد أسبوع خمول (خطة مجانية).
@@ -201,7 +227,8 @@ npx @capacitor/assets generate --android --ios   # إعادة توليد الأ�
 - **Email confirmation is OFF** for the prototype (Supabase's built-in mailer is heavily rate-limited); enable it with a custom SMTP before production. The UI already handles the "confirm your email" case.
 - **Setup:** `SUPABASE_ACCESS_TOKEN=… python3 supabase/setup.py [--steps project,schema,auth,config[,seed]]` (stdlib only; token may also live in `~/.supabase_token`, DB password is written to `~/.laqeeto_db_password`, chmod 600).
 - **Free tier:** the project **pauses after ~1 week of inactivity** — restore it from the Supabase dashboard (data is kept).
-- **Limitations:** simulated face match (manual admin review), dispute video stored as file name only, chat uses 6-second polling (no realtime/push).
+- **Telegram bot** (`supabase/functions/telegram-bot`): Egyptian-Arabic help bot @laqeeto_help_bot (menu, public-only IMEI check, technician guide, FAQ, support relay to the admin via reply). Webhook secret header, one-time `/claim` admin registration, all `bot_*` RPCs service-role only. Deploy with `supabase/setup_edge.py`.
+- **Limitations:** face match is automatic but has no liveness/anti-spoofing beyond the live-camera selfie, dispute video stored as file name only, chat uses 6-second polling (no realtime/push).
 - **No demo data in production:** no demo accounts or demo IMEIs exist in the live DB. The optional seed (`LAQEETO_SEED_DEMO=yes`, refuses the production project) creates random accounts/IMEIs with random passwords and never an admin. Tests create random temporary accounts and purge them (rows + storage) with `tests/cleanup.py`. Admins are promoted manually via SQL.
 - **Native apps** (`native/`, built by `.github/workflows/build.yml` on `v*` tags): signed Android APK (Capacitor 8), Windows NSIS installer and macOS arm64/x64 DMGs (Electron, unsigned/ad-hoc), unsigned iPhone IPA for sideloading. Direct links: `https://github.com/yhany2884-afk/laqeeto/releases/latest/download/<file>`.
-- **Roadmap:** SMTP + SMS OTP, real KYC face-match + liveness, Realtime + push, CAPTCHA, legal/privacy review (Egyptian PDPL 151/2020, police/NTRA cooperation), Capacitor store builds.
+- **Roadmap:** SMTP + SMS OTP, liveness / anti-spoofing + ID OCR, Realtime + push, CAPTCHA, legal/privacy review (Egyptian PDPL 151/2020, police/NTRA cooperation), Capacitor store builds.

@@ -426,3 +426,7 @@ figcaption { font-size: var(--fs-xs); color: var(--muted); margin-top: 4px; text
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @media print { .app-header, .bottom-nav, .status-banner { display: none; } }
+
+/* face-match result on the admin technician card */
+.fm-result { margin: 12px 0; }
+.fm-result .alert { margin: 0 0 6px; }

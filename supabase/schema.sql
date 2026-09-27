@@ -60,7 +60,7 @@ create table if not exists public.profiles (
   tech_selfie_method text,
   tech_device_shot   text,
   tech_status        text check (tech_status in ('pending', 'approved', 'rejected', 'suspended')),
-  tech_face_match    text not null default 'simulated-pending',
+  tech_face_match    jsonb,  -- result of the automatic selfie ↔ ID comparison (see face-match section)
   tech_submitted_at  timestamptz,
   tech_reviewed_by   uuid references public.profiles(id) on delete set null,
   tech_reviewed_by_name text,
@@ -791,7 +791,8 @@ begin
     raise exception 'مسار صورة غير صالح' using errcode = '22023';
   end if;
   update public.profiles set tech_id_photo = p_id_photo, tech_selfie = p_selfie, tech_selfie_method = left(p_selfie_method, 30),
-         tech_device_shot = p_device_shot, tech_status = 'pending', tech_submitted_at = now()
+         tech_device_shot = p_device_shot, tech_status = 'pending', tech_submitted_at = now(),
+         tech_face_match = jsonb_build_object('status', 'pending')
    where id = me.id;
   perform private.audit('رفع مستندات توثيق فني', me.tech_shop_name);
 end $$;
@@ -961,6 +962,183 @@ end $$;
 update public.messages m set sender_name = 'صاحب البلاغ'
   from public.conversations c where c.id = m.conversation_id and m.sender_id = c.owner_id and m.sender_name is distinct from 'صاحب البلاغ';
 
+
+-- ------------------------------------------------------------ face match ----
+-- The Edge Function "face-match" compares the selfie with the ID photo (YuNet + SFace, runs on Supabase's free tier).
+-- It can only read documents and hand back a score through these two service-role-only functions; the approval
+-- policy lives here, in the database, so the function cannot approve anyone on its own.
+do $$ begin
+  if (select data_type from information_schema.columns
+       where table_schema = 'public' and table_name = 'profiles' and column_name = 'tech_face_match') = 'text' then
+    alter table public.profiles alter column tech_face_match drop default;
+    alter table public.profiles alter column tech_face_match drop not null;
+    alter table public.profiles alter column tech_face_match type jsonb
+      using case when tech_face_match like '{%' then tech_face_match::jsonb else null end;
+  end if;
+end $$;
+
+create table if not exists private.settings (
+  key        text primary key,
+  value      jsonb not null,
+  updated_at timestamptz not null default now()
+);
+-- auto_approve: approve a pending technician automatically when the faces clearly match (everything else → manual review).
+-- To switch it off:  update private.settings set value = jsonb_set(value, '{auto_approve}', 'false') where key = 'face_match';
+insert into private.settings (key, value) values
+  ('face_match', '{"auto_approve": true, "auto_min_score": 0.5, "min_id_face_px": 40, "min_selfie_face_px": 80}')
+on conflict (key) do nothing;
+
+create or replace function public.face_match_target(p_user uuid)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare t public.profiles;
+begin
+  select * into t from public.profiles where id = p_user and role = 'technician';
+  if t.id is null then raise exception 'not a technician' using errcode = '22023'; end if;
+  if t.tech_id_photo is null or t.tech_selfie is null then raise exception 'documents missing' using errcode = '22023'; end if;
+  perform private.rate_hit('facematch:' || p_user::text, 10, interval '1 hour');
+  return jsonb_build_object('id_photo', t.tech_id_photo, 'selfie', t.tech_selfie, 'tech_status', t.tech_status);
+end $$;
+
+create or replace function public.record_face_match(p_user uuid, p_id_photo text, p_selfie text, p_result jsonb, p_actor uuid default null)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare t public.profiles; a public.profiles; cfg jsonb; auto boolean; res jsonb; score numeric; st text := p_result ->> 'status';
+begin
+  select * into t from public.profiles where id = p_user and role = 'technician' for update;
+  if t.id is null then raise exception 'not a technician' using errcode = '22023'; end if;
+  -- documents were replaced while we were comparing: drop the stale result
+  if t.tech_id_photo is distinct from p_id_photo or t.tech_selfie is distinct from p_selfie then
+    return jsonb_build_object('stale', true);
+  end if;
+  if st not in ('match', 'no_match', 'no_face_id', 'no_face_selfie', 'multiple_faces_selfie', 'error') then
+    raise exception 'bad result' using errcode = '22023';
+  end if;
+  select value into cfg from private.settings where key = 'face_match';
+  score := nullif(p_result ->> 'score', '')::numeric;
+  auto := coalesce((cfg ->> 'auto_approve')::boolean, false)
+          and t.tech_status = 'pending' and st = 'match'
+          and score >= coalesce((cfg ->> 'auto_min_score')::numeric, 0.5)
+          and coalesce((p_result #>> '{faceSize,id}')::numeric, 0) >= coalesce((cfg ->> 'min_id_face_px')::numeric, 40)
+          and coalesce((p_result #>> '{faceSize,selfie}')::numeric, 0) >= coalesce((cfg ->> 'min_selfie_face_px')::numeric, 80)
+          and t.tech_selfie_method = 'live-camera' and t.tech_device_shot is not null;
+  res := jsonb_strip_nulls(p_result - 'auto_approved' - 'checked_at')
+         || jsonb_build_object('checked_at', now(), 'auto_approved', auto, 'auto_min_score', cfg -> 'auto_min_score');
+  update public.profiles set tech_face_match = res where id = p_user;
+  select * into a from public.profiles where id = p_actor;
+  insert into public.audit_log (actor_id, actor_name, actor_role, action, details, meta)
+  values (a.id, coalesce(a.name, 'النظام'), coalesce(a.role, 'system'), 'مطابقة الوجه',
+          t.name || ' — ' || case st when 'match' then 'متطابق' when 'no_match' then 'غير متطابق' when 'no_face_id' then 'مفيش وش في صورة البطاقة'
+                                     when 'no_face_selfie' then 'مفيش وش في السيلفي' when 'multiple_faces_selfie' then 'أكتر من وش في السيلفي' else 'تعذّر الفحص' end
+                     || coalesce(' (' || round(score, 2)::text || ')', ''),
+          jsonb_build_object('target_user', p_user, 'status', st, 'score', score, 'model', p_result ->> 'model'));
+  if auto then
+    update public.profiles set tech_status = 'approved', tech_reviewed_by = null, tech_reviewed_by_name = 'مطابقة الوجه (تلقائي)',
+           tech_reviewed_at = now(), tech_review_note = null
+     where id = p_user;
+    insert into public.audit_log (actor_id, actor_name, actor_role, action, details, meta)
+    values (null, 'النظام', 'system', 'اعتماد فني تلقائي',
+            t.name || ' — ' || coalesce(t.tech_shop_name, '') || ' — مطابقة الوجه ' || round(score, 2)::text,
+            jsonb_build_object('target_user', p_user, 'score', score));
+  end if;
+  return res;
+end $$;
+
+
+-- ---------------------------------------------------------- telegram bot ----
+-- Used only by the Edge Function "telegram-bot" (service role). Nothing here is reachable with the anon key.
+create table if not exists private.tg_chats (
+  chat_id    bigint primary key,
+  state      text not null default '',
+  updated_at timestamptz not null default now()
+);
+create table if not exists private.tg_updates (update_id bigint primary key, at timestamptz not null default now());
+-- forwarded support message (in the admin chat) → customer chat, so the admin's reply can be relayed back
+create table if not exists private.tg_threads (
+  admin_msg_id  bigint primary key,
+  customer_chat bigint not null,
+  customer_name text,
+  at            timestamptz not null default now()
+);
+
+-- one call per update: de-duplicates Telegram re-deliveries and returns the chat state + admin chat
+create or replace function public.bot_begin(p_update_id bigint, p_chat bigint)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare dup boolean := false; st text;
+begin
+  if random() < 0.02 then
+    delete from private.tg_updates where at < now() - interval '2 days';
+    delete from private.tg_threads where at < now() - interval '30 days';
+    delete from private.tg_chats where updated_at < now() - interval '30 days';
+  end if;
+  insert into private.tg_updates (update_id) values (p_update_id) on conflict do nothing;
+  if not found then dup := true; end if;
+  select case when updated_at > now() - interval '30 minutes' then state else '' end into st from private.tg_chats where chat_id = p_chat;
+  return jsonb_build_object('dup', dup, 'state', coalesce(st, ''),
+    'admin_chat', (select (value ->> 'admin_chat_id')::bigint from private.settings where key = 'telegram'));
+end $$;
+
+create or replace function public.bot_set_state(p_chat bigint, p_state text)
+returns void language sql security definer set search_path = '' as $$
+  insert into private.tg_chats (chat_id, state) values (p_chat, left(coalesce(p_state, ''), 30))
+  on conflict (chat_id) do update set state = excluded.state, updated_at = now();
+$$;
+
+-- public status only (reported or not + phone model); never owner data. Rate-limited per chat.
+create or replace function public.bot_check_imei(p_chat bigint, p_q text)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare n text := private.norm_id(p_q);
+begin
+  perform private.rate_hit('tg:check:' || p_chat, 10, interval '10 minutes');
+  perform private.rate_hit('tg:checkday:' || p_chat, 60, interval '1 day');
+  if n !~ '^[0-9]{15}$' then return jsonb_build_object('valid', false, 'luhn', false, 'results', '[]'::jsonb); end if;
+  return jsonb_build_object('valid', true, 'luhn', private.luhn_ok(n), 'results', coalesce((
+    select jsonb_agg(jsonb_build_object('brand', r.brand, 'model', r.model, 'type', r.type, 'status', r.status,
+                                        'active', private.is_active(r.status), 'reported_at', r.created_at)
+                     order by private.is_active(r.status) desc, r.created_at desc)
+      from public.reports r where r.imei1 = n or r.imei2 = n), '[]'::jsonb));
+end $$;
+
+create or replace function public.bot_rate(p_chat bigint, p_kind text, p_max int, p_minutes int)
+returns boolean language plpgsql security definer set search_path = '' as $$
+begin
+  perform private.rate_hit('tg:' || left(p_kind, 20) || ':' || p_chat, p_max, make_interval(mins => p_minutes));
+  return true;
+exception when sqlstate 'P0001' then return false;
+end $$;
+
+-- the claim code itself is checked in the function (secret); the DB only guarantees there is at most one admin chat
+create or replace function public.bot_claim_admin(p_chat bigint, p_name text)
+returns boolean language plpgsql security definer set search_path = '' as $$
+declare cur bigint;
+begin
+  select (value ->> 'admin_chat_id')::bigint into cur from private.settings where key = 'telegram' for update;
+  if cur is not null then return cur = p_chat; end if;
+  insert into private.settings (key, value) values ('telegram', jsonb_build_object('admin_chat_id', p_chat, 'admin_name', left(p_name, 80), 'claimed_at', now()))
+  on conflict (key) do update set value = excluded.value, updated_at = now();
+  insert into public.audit_log (actor_name, actor_role, action, details) values ('النظام', 'system', 'ربط حساب الأدمن في تيليجرام', left(p_name, 80));
+  return true;
+end $$;
+
+create or replace function public.bot_release_admin(p_chat bigint)
+returns boolean language plpgsql security definer set search_path = '' as $$
+begin
+  delete from private.settings where key = 'telegram' and (value ->> 'admin_chat_id')::bigint = p_chat;
+  if found then
+    insert into public.audit_log (actor_name, actor_role, action, details) values ('النظام', 'system', 'فك ربط حساب الأدمن في تيليجرام', '');
+  end if;
+  return found;
+end $$;
+
+create or replace function public.bot_link_thread(p_admin_msg bigint, p_customer bigint, p_name text)
+returns void language sql security definer set search_path = '' as $$
+  insert into private.tg_threads (admin_msg_id, customer_chat, customer_name) values (p_admin_msg, p_customer, left(p_name, 80))
+  on conflict (admin_msg_id) do nothing;
+$$;
+
+create or replace function public.bot_lookup_thread(p_admin_msg bigint)
+returns jsonb language sql stable security definer set search_path = '' as $$
+  select jsonb_build_object('chat', customer_chat, 'name', customer_name) from private.tg_threads where admin_msg_id = p_admin_msg
+$$;
+
 -- ------------------------------------------------------ function grants ----
 revoke execute on all functions in schema public from public, anon, authenticated;
 revoke execute on all functions in schema private from public, anon, authenticated;
@@ -987,7 +1165,9 @@ grant execute on all functions in schema private to service_role;
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types) values
   ('report-photos',   'report-photos',   false, 5242880, array['image/jpeg', 'image/png', 'image/webp']),
   ('tech-docs',       'tech-docs',       false, 5242880, array['image/jpeg', 'image/png', 'image/webp']),
-  ('handover-photos', 'handover-photos', false, 5242880, array['image/jpeg', 'image/png', 'image/webp'])
+  ('handover-photos', 'handover-photos', false, 5242880, array['image/jpeg', 'image/png', 'image/webp']),
+  -- face-match models (read by the Edge Function with the service role only; no client policies at all)
+  ('ml-models',       'ml-models',       false, 20971520, array['application/octet-stream'])
 on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
 
 -- uploads: only into your own folder "<uid>/..."; handover photos only by approved technicians
