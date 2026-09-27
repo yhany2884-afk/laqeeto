@@ -98,6 +98,8 @@ def run(url, anon, sql, service_key=None, log=print):
             tech_reviewed_at = now(), tech_review_note = 'تمت المراجعة يدوياً' where id = {q(ids['tech'])};
             update public.profiles set tech_status = 'pending', tech_reviewed_by = null, tech_reviewed_at = null, tech_review_note = null where id = {q(ids['newtech'])};""")
     # recreate demo reports
+    # reuse the previous placeholder photos so re-seeding doesn't leave orphaned files in Storage
+    old_photos = {r['imei1']: r['box_photo'] for r in sql(f"select imei1, box_photo from public.reports where owner_id in ({q(ids['owner'])}, {q(ids['mona'])}) and box_photo is not null")}
     sql(f"delete from public.reports where owner_id in ({q(ids['owner'])}, {q(ids['mona'])});")
     def contact(phone, email, public_phone=False):
         return {'phone': {'value': phone, 'public': public_phone}, 'email': {'value': email, 'public': False},
@@ -116,7 +118,8 @@ def run(url, anon, sql, service_key=None, log=print):
     rep = []
     for who, r in reports:
         tok, uid = S[who]
-        r['box_photo'] = api.upload(tok, uid, 'report-photos', png(320, 220, (226, 232, 240), (15, 23, 42), 'box'))
+        prev = old_photos.get(r['imei1'])
+        r['box_photo'] = prev if prev and prev.startswith(f'report-photos/{uid}/') else api.upload(tok, uid, 'report-photos', png(320, 220, (226, 232, 240), (15, 23, 42), 'box'))
         rep.append(api.insert(tok, 'reports', r))
     sql(f"select set_config('laqeeto.note', 'تسليم تجريبي سابق', true); update public.reports set status = 'delivered' where id = {q(rep[3]['id'])};")
     # a demo conversation: the technician found the lost iPhone
