@@ -47,7 +47,7 @@ const accountFields = `
   <label class="field"><span>البريد الإلكتروني <span class="req">*</span></span><input name="email" type="email" required dir="ltr" autocomplete="email"></label>
   <label class="field"><span>رقم الموبايل <span class="req">*</span></span><input name="phone" inputmode="tel" required dir="ltr" placeholder="01xxxxxxxxx" autocomplete="tel"></label>
   <div class="grid-2">
-    <label class="field"><span>كلمة المرور <span class="req">*</span></span><input name="password" type="password" required minlength="6" dir="ltr" autocomplete="new-password"></label>
+    <label class="field"><span>كلمة المرور <span class="req">*</span></span><input name="password" type="password" required minlength="8" dir="ltr" autocomplete="new-password"></label>
     <label class="field"><span>تأكيد كلمة المرور <span class="req">*</span></span><input name="password2" type="password" required dir="ltr" autocomplete="new-password"></label>
   </div>`;
 
@@ -55,7 +55,7 @@ function validateAccount(f) {
   if (f.name.value.trim().length < 3) return 'اكتب اسمك بالكامل';
   if (!validateEmail(f.email.value)) return 'البريد الإلكتروني غير صحيح';
   if (!validateEgPhone(f.phone.value).ok) return 'رقم الموبايل غير صحيح (مثال: 01012345678)';
-  if (f.password.value.length < 6) return 'كلمة المرور يجب ألا تقل عن 6 أحرف';
+  if (f.password.value.length < 8) return 'كلمة المرور يجب ألا تقل عن 8 أحرف';
   if (f.password.value !== f.password2.value) return 'كلمتا المرور غير متطابقتين';
   return null;
 }

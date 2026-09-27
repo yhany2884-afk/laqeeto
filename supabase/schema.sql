@@ -242,9 +242,12 @@ end $$;
 
 create or replace function private.client_ip() returns text
 language sql stable set search_path = '' as $$
-  select nullif(trim(split_part(coalesce(nullif(current_setting('request.headers', true), '')::json ->> 'x-forwarded-for', ''), ',', 1)), '')
+  -- cf-connecting-ip is set by Cloudflare (client cannot forge it); otherwise use the LAST x-forwarded-for hop,
+  -- which is appended by Supabase's proxy. The first XFF entry is client-controlled and must never be trusted.
+  select coalesce(nullif(trim(h ->> 'cf-connecting-ip'), ''),
+                  nullif(trim(regexp_replace(coalesce(h ->> 'x-forwarded-for', ''), '^.*,', '')), ''))
+    from (select nullif(current_setting('request.headers', true), '')::json as h) x
 $$;
-
 create or replace function private.rate_hit(p_key text, p_max int, p_window interval)
 returns void language plpgsql security definer set search_path = '' as $$
 declare n int;
@@ -323,6 +326,38 @@ end $$;
 drop trigger if exists profiles_guard on public.profiles;
 create trigger profiles_guard before update on public.profiles for each row execute function private.profiles_guard();
 
+-- contact JSON validation (server-side; the client validates too). Blocks javascript:/data: links (stored XSS).
+create or replace function private.check_contact(c jsonb) returns void
+language plpgsql immutable set search_path = '' as $$
+declare s jsonb; v text;
+begin
+  if c is null or jsonb_typeof(c) <> 'object' then raise exception 'بيانات التواصل غير صالحة' using errcode = '22023'; end if;
+  if octet_length(c::text) > 4000 then raise exception 'بيانات التواصل طويلة جداً' using errcode = '22023'; end if;
+  if jsonb_typeof(c -> 'phone' -> 'public') not in ('boolean', 'null') or jsonb_typeof(c -> 'email' -> 'public') not in ('boolean', 'null') then
+    raise exception 'بيانات التواصل غير صالحة' using errcode = '22023';
+  end if;
+  v := coalesce(c -> 'phone' ->> 'value', '');
+  if v <> '' and v !~ '^\+?[0-9][0-9 -]{5,19}$' then raise exception 'رقم الهاتف غير صحيح' using errcode = '22023'; end if;
+  v := coalesce(c -> 'email' ->> 'value', '');
+  if v <> '' and (char_length(v) > 254 or v !~ '^[^[:space:]@<>"''`]+@[^[:space:]@<>"''`]+\.[^[:space:]@<>"''`]+$') then
+    raise exception 'البريد الإلكتروني غير صحيح' using errcode = '22023';
+  end if;
+  if c ? 'socials' and jsonb_typeof(c -> 'socials') <> 'null' then
+    if jsonb_typeof(c -> 'socials') <> 'array' or jsonb_array_length(c -> 'socials') > 5 then
+      raise exception 'روابط التواصل غير صالحة' using errcode = '22023';
+    end if;
+    for s in select value from jsonb_array_elements(c -> 'socials') loop
+      if jsonb_typeof(s) <> 'object' or jsonb_typeof(s -> 'value') not in ('string', 'null') or jsonb_typeof(s -> 'public') not in ('boolean', 'null') then
+        raise exception 'روابط التواصل غير صالحة' using errcode = '22023';
+      end if;
+      v := coalesce(s ->> 'value', '');
+      if v <> '' and (char_length(v) > 300 or v !~* '^https?://[^[:space:]<>"''`]+\.[^[:space:]<>"''`]+$') then
+        raise exception 'روابط التواصل يجب أن تبدأ بـ https://' using errcode = '22023';
+      end if;
+    end loop;
+  end if;
+end $$;
+
 -- reports: insert guard (runs as the caller, NOT security definer, so current_user is meaningful)
 create or replace function private.reports_before_insert() returns trigger
 language plpgsql set search_path = '' as $$
@@ -341,6 +376,7 @@ begin
     new.created_at := now();
   end if;
   if new.status is null then new.status := new.type; end if;
+  perform private.check_contact(new.contact);
   prefix := 'report-photos/' || new.owner_id::text || '/';
   if left(new.box_photo, length(prefix)) <> prefix
      or (new.invoice_photo is not null and left(new.invoice_photo, length(prefix)) <> prefix)
@@ -362,6 +398,7 @@ begin
       raise exception 'لا يمكن تعديل بيانات البلاغ مباشرة' using errcode = '42501';
     end if;
   end if;
+  if new.contact is distinct from old.contact then perform private.check_contact(new.contact); end if;
   new.updated_at := now();
   return new;
 end $$;
@@ -493,7 +530,11 @@ language plpgsql volatile security definer set search_path = '' as $$
 declare n text := private.norm_id(q); ip text := private.client_ip();
 begin
   if length(n) < 5 or length(n) > 30 then return; end if;
-  if auth.uid() is null and ip is not null then perform private.rate_hit('search:ip:' || ip, 120, interval '1 hour'); end if;
+  if auth.uid() is null then
+    if ip is not null then perform private.rate_hit('search:ip:' || ip, 120, interval '1 hour'); end if;
+  else
+    perform private.rate_hit('search:user:' || auth.uid(), 300, interval '1 hour');
+  end if;
   return query
     select r.id, r.brand, r.model, r.color, r.type, r.status, private.is_active(r.status), r.created_at, r.governorate,
            private.public_contact(r.contact), (r.owner_id = auth.uid())
@@ -502,7 +543,6 @@ begin
      order by private.is_active(r.status) desc, r.created_at desc
      limit 5;
 end $$;
-
 create or replace function public.get_report_public(p_id uuid)
 returns table (id uuid, brand text, model text, color text, type text, status text, active boolean,
                reported_at timestamptz, governorate text, public_contact jsonb, is_mine boolean)
@@ -530,11 +570,14 @@ end $$;
 create or replace function private.add_message(p_conv uuid, p_kind text, p_body text, p_data jsonb default null,
                                                p_sender_kind text default 'user', p_sender_name text default null)
 returns public.messages language plpgsql security definer set search_path = '' as $$
-declare p public.profiles; m public.messages;
+declare p public.profiles; m public.messages; conv_owner uuid;
 begin
   if p_sender_kind = 'user' then select * into p from public.profiles where id = auth.uid(); end if;
+  select owner_id into conv_owner from public.conversations where id = p_conv;
   insert into public.messages (conversation_id, sender_id, sender_kind, sender_name, sender_role, kind, body, data)
-  values (p_conv, p.id, p_sender_kind, coalesce(p.name, p_sender_name, 'النظام'), p.role, p_kind, left(p_body, 2000), p_data)
+  values (p_conv, p.id, p_sender_kind,
+          case when p.id is not null and p.id = conv_owner then 'صاحب البلاغ' else left(coalesce(p.name, p_sender_name, 'النظام'), 120) end,
+          p.role, p_kind, left(p_body, 2000), p_data)
   returning * into m;
   update public.conversations set last_text = left(p_body, 120), updated_at = now(),
          owner_read_at = case when p.id is not null and p.id = owner_id then now() else owner_read_at end,
@@ -542,7 +585,6 @@ begin
    where id = p_conv;
   return m;
 end $$;
-
 create or replace function private.message_json(m public.messages) returns jsonb
 language sql stable set search_path = '' as $$
   select jsonb_build_object('id', m.id, 'sender_id', m.sender_id, 'sender_kind', m.sender_kind, 'sender_name', m.sender_name,
@@ -609,20 +651,18 @@ returns table (id uuid, report_id uuid, updated_at timestamptz, last_text text, 
                report_brand text, report_model text, report_status text, unread int, i_am_owner boolean)
 language sql stable security definer set search_path = '' as $$
   select c.id, c.report_id, c.updated_at, c.last_text,
-         case when c.owner_id = auth.uid() then coalesce(pp.name, c.guest_name) else po.name end,
-         case when c.owner_id = auth.uid() then coalesce(pp.role, 'guest') else po.role end,
+         case when c.owner_id = auth.uid() then coalesce(pp.name, c.guest_name) else 'صاحب البلاغ' end,
+         case when c.owner_id = auth.uid() then coalesce(pp.role, 'guest') else 'owner' end,
          r.brand, r.model, r.status,
          (select count(*)::int from public.messages m where m.conversation_id = c.id and m.sender_id is distinct from auth.uid()
             and m.created_at > case when c.owner_id = auth.uid() then c.owner_read_at else c.participant_read_at end),
          c.owner_id = auth.uid()
     from public.conversations c
     join public.reports r on r.id = c.report_id
-    left join public.profiles po on po.id = c.owner_id
     left join public.profiles pp on pp.id = c.participant_id
    where auth.uid() in (c.owner_id, c.participant_id)
    order by c.updated_at desc
 $$;
-
 create or replace function public.unread_count() returns int
 language sql stable security definer set search_path = '' as $$
   select coalesce(sum(unread), 0)::int from public.list_my_conversations()
@@ -632,16 +672,14 @@ create or replace function private.conversation_json(c public.conversations, vie
 language sql stable security definer set search_path = '' as $$
   select jsonb_build_object(
     'id', c.id, 'report_id', c.report_id, 'viewer', viewer,
-    'other_name', case when viewer = 'owner' then coalesce(pp.name, c.guest_name) else po.name end,
-    'other_role', case when viewer = 'owner' then coalesce(pp.role, 'guest') else po.role end,
+    'other_name', case when viewer = 'owner' then coalesce(pp.name, c.guest_name) else 'صاحب البلاغ' end,
+    'other_role', case when viewer = 'owner' then coalesce(pp.role, 'guest') else 'owner' end,
     'report', jsonb_build_object('id', r.id, 'brand', r.brand, 'model', r.model, 'color', r.color, 'status', r.status, 'active', private.is_active(r.status)),
     'messages', coalesce((select jsonb_agg(private.message_json(m) order by m.created_at) from public.messages m where m.conversation_id = c.id), '[]'::jsonb))
   from public.reports r
-  left join public.profiles po on po.id = c.owner_id
   left join public.profiles pp on pp.id = c.participant_id
   where r.id = c.report_id
 $$;
-
 create or replace function public.get_conversation(p_conv uuid)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare c public.conversations;
@@ -884,12 +922,13 @@ returns void language plpgsql security definer set search_path = '' as $$
 declare me public.profiles;
 begin
   if not private.is_admin() then raise exception 'ليست لديك صلاحية' using errcode = '42501'; end if;
+  if char_length(trim(coalesce(p_body, ''))) not between 1 and 2000 then raise exception 'الملاحظة فارغة أو طويلة جداً' using errcode = '22023'; end if;
+  if not exists (select 1 from public.disputes where id = p_dispute) then raise exception 'النزاع غير موجود'; end if;
   select * into me from public.profiles where id = auth.uid();
   insert into public.dispute_notes (dispute_id, author_id, author_name, body) values (p_dispute, me.id, me.name, trim(p_body));
   update public.disputes set updated_at = now() where id = p_dispute;
   perform private.audit('ملاحظة على نزاع', left(p_body, 80), null, jsonb_build_object('dispute', p_dispute));
 end $$;
-
 create or replace function public.admin_set_dispute_status(p_dispute uuid, p_status text)
 returns void language plpgsql security definer set search_path = '' as $$
 begin
@@ -918,12 +957,16 @@ begin
   perform private.audit('تسجيل دخول', coalesce(private.my_role(), ''));
 end $$;
 
+-- owners' names are never exposed on their chat messages (idempotent data fix for rows created before this rule)
+update public.messages m set sender_name = 'صاحب البلاغ'
+  from public.conversations c where c.id = m.conversation_id and m.sender_id = c.owner_id and m.sender_name is distinct from 'صاحب البلاغ';
+
 -- ------------------------------------------------------ function grants ----
 revoke execute on all functions in schema public from public, anon, authenticated;
 revoke execute on all functions in schema private from public, anon, authenticated;
 -- helpers used inside RLS policies / constraints must be executable by API roles
 grant execute on function private.is_admin(), private.is_approved_tech(), private.my_role(), private.luhn_ok(text),
-                          private.norm_id(text), private.is_active(text) to anon, authenticated;
+                          private.norm_id(text), private.is_active(text), private.check_contact(jsonb) to anon, authenticated;
 -- public (anon + logged in)
 grant execute on function public.search_reports(text), public.get_report_public(uuid),
                           public.guest_message_owner(uuid, text, text, text), public.guest_get_conversation(uuid, text, boolean),

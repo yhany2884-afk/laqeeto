@@ -1,6 +1,6 @@
 // لوحة الدعم الفني — support admin dashboard
 import db from '../db.js';
-import { esc, fmtDate, fmtDateTime, STATUS, TECH_STATUS, DISPUTE_STATUS, HANDOVER_STATUS, ROLE_LABEL, normalizeId } from '../utils.js';
+import { esc, extLink, fmtDate, fmtDateTime, STATUS, TECH_STATUS, DISPUTE_STATUS, HANDOVER_STATUS, ROLE_LABEL, normalizeId } from '../utils.js';
 import { $, $$, go, toast, badge, statusBadge, hydrateImages, fileImg, emptyState, confirmDialog, promptDialog } from '../ui.js';
 
 const TABS = [
@@ -111,7 +111,7 @@ async function disputesTab(body, refresh) {
       <dt>الوصف</dt><dd>${esc(d.description)}</dd>
       <dt>رقم المحضر</dt><dd>${esc(d.policeNumber || '—')}</dd>
       <dt>ملف الفيديو</dt><dd>${esc(d.evidenceFileName || '—')}</dd>
-      <dt>رابط الدليل</dt><dd>${d.evidenceLink ? `<a href="${esc(d.evidenceLink)}" target="_blank" rel="noopener noreferrer" dir="ltr">${esc(d.evidenceLink)}</a>` : '—'}</dd>
+      <dt>رابط الدليل</dt><dd>${d.evidenceLink ? extLink(d.evidenceLink) : '—'}</dd>
       <dt>الشهود</dt><dd>${esc(d.witnesses || '—')}</dd>
     </dl>
     <div class="notes">${d.notes.map((n) => `<div class="note">💬 <b>${esc(n.byName)}</b> (${fmtDateTime(n.at)}): ${esc(n.text)}</div>`).join('') || '<div class="muted small">لا توجد ملاحظات بعد</div>'}</div>

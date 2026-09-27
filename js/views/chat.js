@@ -1,6 +1,6 @@
 // الرسائل — inbox & conversation
 import db from '../db.js';
-import { esc, fmtDateTime, ROLE_LABEL } from '../utils.js';
+import { esc, extLink, fmtDateTime, ROLE_LABEL } from '../utils.js';
 import { $, go, toast, modal, emptyState, safetyNote, statusBadge } from '../ui.js';
 
 export async function inboxView(el) {
@@ -89,7 +89,7 @@ function msgHTML(m, user) {
   const mine = m.fromId === user.id;
   let body = esc(m.text).replace(/\n/g, '<br>');
   if (m.kind === 'contact' && m.data) {
-    body += `<div class="shared-contact">${m.data.phone ? `<div>📞 <a href="tel:${esc(m.data.phone)}" dir="ltr">${esc(m.data.phone)}</a></div>` : ''}${m.data.email ? `<div>✉️ <a href="mailto:${esc(m.data.email)}">${esc(m.data.email)}</a></div>` : ''}${(m.data.socials || []).map((s) => `<div>🔗 <a href="${esc(s)}" target="_blank" rel="noopener noreferrer" dir="ltr">${esc(s)}</a></div>`).join('')}</div>`;
+    body += `<div class="shared-contact">${m.data.phone ? `<div>📞 <a href="tel:${esc(m.data.phone)}" dir="ltr">${esc(m.data.phone)}</a></div>` : ''}${m.data.email ? `<div>✉️ <a href="mailto:${esc(m.data.email)}">${esc(m.data.email)}</a></div>` : ''}${(m.data.socials || []).map((s) => `<div>🔗 ${extLink(s)}</div>`).join('')}</div>`;
   }
   return `<div class="msg ${mine ? 'msg-me' : 'msg-them'}">${mine ? '' : `<b class="msg-from">${esc(m.fromName)}</b>`}<div>${body}</div><small>${fmtDateTime(m.createdAt)}</small></div>`;
 }

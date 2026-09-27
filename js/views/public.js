@@ -1,6 +1,6 @@
 // الصفحات العامة: الرئيسية، البحث، عن التطبيق
 import db from '../db.js';
-import { esc, normalizeId, validateImei, fmtDate, validateEgPhone, STATUS } from '../utils.js';
+import { esc, extLink, normalizeId, validateImei, fmtDate, validateEgPhone, STATUS } from '../utils.js';
 import { $, go, toast, modal, statusBadge, safetyNote, emptyState } from '../ui.js';
 import { promptInstall, installInstructionsHTML, isNativeApp } from '../pwa.js';
 
@@ -84,7 +84,7 @@ export async function searchView(el, { query, user }) {
         ${Object.keys(r.publicContact).length ? `<div class="public-contact"><b>بيانات تواصل أتاحها المالك للعامة:</b>
           ${r.publicContact.phone ? `<div>📞 <a href="tel:${esc(r.publicContact.phone)}" dir="ltr">${esc(r.publicContact.phone)}</a></div>` : ''}
           ${r.publicContact.email ? `<div>✉️ <a href="mailto:${esc(r.publicContact.email)}">${esc(r.publicContact.email)}</a></div>` : ''}
-          ${(r.publicContact.socials || []).map((s) => `<div>🔗 <a href="${esc(s)}" target="_blank" rel="noopener noreferrer" dir="ltr">${esc(s)}</a></div>`).join('')}
+          ${(r.publicContact.socials || []).map((s) => `<div>🔗 ${extLink(s)}</div>`).join('')}
         </div>` : '<p class="muted small">🔒 بيانات تواصل المالك مخفية. تواصل معه بأمان من خلال رسائل التطبيق.</p>'}
         ${r.isMine ? `<div class="alert alert-info alert-compact">هذا بلاغك أنت. <a href="#/report/${esc(r.id)}">عرض التفاصيل</a></div>`
           : `<div class="btn-row"><button class="btn btn-primary" data-msg="${esc(r.id)}">💬 راسل المالك</button>

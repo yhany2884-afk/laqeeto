@@ -7,6 +7,22 @@ export function esc(v) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+/** Return the URL only if it is a plain http(s) link (blocks javascript:, data:, vbscript: … — stored XSS) */
+export function safeUrl(v) {
+  const s = String(v ?? '').trim();
+  if (!/^https?:\/\//i.test(s)) return '';
+  try {
+    const u = new URL(s);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : '';
+  } catch { return ''; }
+}
+
+/** External link HTML for user-supplied URLs: a real link for http(s), plain text otherwise */
+export function extLink(v) {
+  const u = safeUrl(v);
+  return u ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer nofollow" dir="ltr">${esc(v)}</a>` : `<span dir="ltr">${esc(v)}</span>`;
+}
+
 /** Convert Arabic-Indic / Persian digits to Latin digits */
 export function toLatinDigits(s) {
   return String(s ?? '')
