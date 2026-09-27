@@ -1,0 +1,61 @@
+# electron-builder config — Windows NSIS installer + macOS DMG (unsigned / ad-hoc signed)
+appId: io.github.yhany2884afk.laqeeto
+productName: Laqeeto
+copyright: "© 2026 Laqeeto"
+directories:
+  output: dist
+  buildResources: build
+files:
+  - electron/**
+  - www/**
+  - build/icon.png
+  - package.json
+  - "!**/node_modules/**"
+asar: true
+extraMetadata:
+  main: electron/main.js
+artifactName: "Laqeeto-${version}-${os}-${arch}.${ext}"
+
+win:
+  target: [{ target: nsis, arch: [x64] }]
+  icon: build/icon.png
+  executableName: Laqeeto
+  legalTrademarks: Laqeeto
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: "لقيته - Laqeeto"
+  uninstallDisplayName: "لقيته - Laqeeto"
+  artifactName: "Laqeeto-Windows-Setup.${ext}"
+  installerLanguages: [ar_SA, en_US]
+  language: "1025"
+  displayLanguageSelector: false
+  unicode: true
+
+mac:
+  target: [{ target: dmg, arch: [arm64, x64] }]
+  icon: build/icon.png
+  category: public.app-category.utilities
+  # No Apple Developer ID: ad-hoc signature ("-"), no hardened runtime, no notarization.
+  identity: "-"
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  notarize: false
+  extendInfo:
+    CFBundleDisplayName: "لقيته"
+    NSCameraUsageDescription: "يستخدم «لقيته» الكاميرا لالتقاط السيلفي المباشر وصور تسليم الهاتف. Laqeeto uses the camera for the live verification selfie and handover photos."
+    LSApplicationCategoryType: public.app-category.utilities
+dmg:
+  artifactName: "Laqeeto-macOS-${arch}.${ext}"
+  title: "Laqeeto ${version}"
+  writeUpdateInfo: false
+
+linux:
+  target: [dir]
+  icon: build/icon.png
+  category: Utility
+
+publish: null

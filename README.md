@@ -5,6 +5,24 @@
 
 > ⚠️ **نسخة تجريبية (Prototype):** البيانات الآن **مشتركة بين كل الأجهزة** (Supabase: Postgres + Auth + Storage) لكن المشروع على الخطة المجانية، والحسابات التجريبية مشتركة للجميع، ومطابقة الوجه محاكاة. لا تستخدمه لبيانات حقيقية حساسة.
 
+## ⬇️ تحميل التطبيق
+| الجهاز | ملف التثبيت |
+|---|---|
+| 🤖 أندرويد 7+ | [Laqeeto-Android.apk](https://github.com/yhany2884-afk/laqeeto/releases/latest/download/Laqeeto-Android.apk) |
+| 🪟 ويندوز 10/11 (64-bit) | [Laqeeto-Windows-Setup.exe](https://github.com/yhany2884-afk/laqeeto/releases/latest/download/Laqeeto-Windows-Setup.exe) |
+| 🍎 ماك (Apple M1/M2/M3/M4) | [Laqeeto-macOS-arm64.dmg](https://github.com/yhany2884-afk/laqeeto/releases/latest/download/Laqeeto-macOS-arm64.dmg) |
+| 🍏 ماك (Intel) | [Laqeeto-macOS-x64.dmg](https://github.com/yhany2884-afk/laqeeto/releases/latest/download/Laqeeto-macOS-x64.dmg) |
+| 📱 آيفون (IPA غير موقّع — للتحميل الجانبي) | [Laqeeto-iPhone-unsigned.ipa](https://github.com/yhany2884-afk/laqeeto/releases/latest/download/Laqeeto-iPhone-unsigned.ipa) |
+| 🌐 أي جهاز بدون تثبيت | https://yhany2884-afk.github.io/laqeeto/ |
+
+كل الملفات وخطوات التثبيت التفصيلية في [صفحة أحدث إصدار](https://github.com/yhany2884-afk/laqeeto/releases/latest). باختصار:
+- **أندرويد:** اسمح بـ«تثبيت التطبيقات من مصادر غير معروفة» للمتصفح، وإذا حذّر Play Protect اختر «التثبيت على أي حال».
+- **ويندوز:** في شاشة SmartScreen اضغط «مزيد من المعلومات» ← «تشغيل على أي حال».
+- **ماك:** اسحب التطبيق إلى Applications ثم زر الماوس الأيمن ← «فتح»، أو «إعدادات النظام ← الخصوصية والأمان ← فتح على أي حال».
+- **آيفون:** الأسهل: Safari ← مشاركة ← «إضافة إلى الشاشة الرئيسية». أو وقّع ملف IPA بـ Sideloadly/AltStore بحساب Apple ID (يلزم إعادة التوقيع كل 7 أيام مع الحساب المجاني).
+
+> النسخ المستقلة غير موقّعة من Apple/Microsoft (نموذج تجريبي) ولا تتحدث تلقائياً؛ كلها تستخدم نفس قاعدة البيانات والحسابات.
+
 ## ما هو «لقيته»؟
 سجل مجتمعي للهواتف المسروقة والمفقودة في مصر:
 - **مالك الهاتف** يبلّغ عن هاتفه برقم IMEI (15 رقماً + خوارزمية Luhn، ويُتحقق منها في قاعدة البيانات أيضاً) وصورة العلبة وبيانات اختيارية (فاتورة، رقم محضر)، مع تحكم كامل في خصوصية بيانات التواصل لكل حقل (مخفية افتراضياً).
@@ -110,6 +128,35 @@ supabase/schema.sql     الجداول + RLS + الدوال + الحاويات (
 supabase/setup.py       إعداد المشروع عبر Management API
 supabase/seed_demo.py   البيانات التجريبية
 docs/PLAN.md            خطة المنتج الكاملة
+native/                 التطبيقات المستقلة (لا تُنشر على الموقع):
+  scripts/build-www.mjs   ينسخ ملفات الويب من جذر المستودع إلى native/www
+  capacitor.config.json   أندرويد + iOS (Capacitor 8)
+  android/ · ios/         مشروعا Capacitor الأصليان (أذونات الكاميرا، الأيقونات، التوقيع)
+  electron/               تطبيق سطح المكتب (Electron) لويندوز وماك
+  electron-builder.yml    إعداد مثبّت ويندوز (NSIS) و DMG للماك
+  RELEASE_NOTES.md        نص صفحة الإصدار
+.github/workflows/build.yml  بناء كل المنصات وإنشاء الإصدار على GitHub
+```
+
+## بناء التطبيقات المستقلة
+جذر المستودع هو **المصدر الوحيد** لكود الواجهة؛ مجلد `native/` يغلّفه فقط:
+- **أندرويد (Capacitor):** APK موقّع بمفتاح إصدار محفوظ في GitHub Secrets فقط (`ANDROID_KEYSTORE_BASE64`، `ANDROID_KEYSTORE_PASSWORD`، `ANDROID_KEY_PASSWORD`، `ANDROID_KEY_ALIAS`). إذن `CAMERA` مضاف، وCapacitor يمرر طلبات الكاميرا من WebView (السيلفي المباشر و`<input capture>`).
+- **ويندوز وماك (Electron):** الواجهة تُحمّل من بروتوكول خاص آمن `app://laqeeto/`، الكاميرا فقط مسموحة (الميكروفون وغيره مرفوض)، والروابط الخارجية تفتح في المتصفح. الماك موقّع ad-hoc بدون توثيق Apple.
+- **آيفون (Capacitor):** IPA **غير موقّع** يُبنى على macOS بـ `xcodebuild archive CODE_SIGNING_ALLOWED=NO`.
+- في التطبيقات المستقلة لا يُسجَّل Service Worker ولا تظهر أزرار «تثبيت التطبيق».
+
+**إصدار جديد:** غيّر `CACHE_VERSION` في `sw.js` إن عدّلت الواجهة، ثم:
+```bash
+git tag v2.0.1 && git push origin v2.0.1   # يبني كل المنصات وينشئ الإصدار تلقائياً
+```
+أو شغّل الـ workflow يدوياً من تبويب Actions (مع أو بدون tag).
+
+**محلياً:**
+```bash
+cd native && npm ci
+npm run electron          # تشغيل نسخة سطح المكتب
+npm run cap:sync          # نسخ الواجهة إلى android/ و ios/ ثم افتحها في Android Studio / Xcode
+npx @capacitor/assets generate --android --ios   # إعادة توليد الأيقونات من native/assets
 ```
 
 ## القيود الحالية
@@ -138,4 +185,5 @@ docs/PLAN.md            خطة المنتج الكاملة
 - **Free tier:** the project **pauses after ~1 week of inactivity** — restore it from the Supabase dashboard (data is kept).
 - **Limitations:** simulated face match (manual admin review), dispute video stored as file name only, chat uses 6-second polling (no realtime/push), shared demo accounts.
 - **Demo accounts:** see the table above (`owner@demo.eg / Owner@123`, `tech@demo.eg / Tech@123`, `admin@demo.eg / Admin@123`, …). Reset with `python3 supabase/setup.py --steps seed`.
+- **Native apps** (`native/`, built by `.github/workflows/build.yml` on `v*` tags): signed Android APK (Capacitor 8), Windows NSIS installer and macOS arm64/x64 DMGs (Electron, unsigned/ad-hoc), unsigned iPhone IPA for sideloading. Direct links: `https://github.com/yhany2884-afk/laqeeto/releases/latest/download/<file>`.
 - **Roadmap:** SMTP + SMS OTP, real KYC face-match + liveness, Realtime + push, CAPTCHA, legal/privacy review (Egyptian PDPL 151/2020, police/NTRA cooperation), Capacitor store builds.

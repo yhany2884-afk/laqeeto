@@ -2,7 +2,7 @@
 import db from '../db.js';
 import { esc, normalizeId, validateImei, fmtDate, validateEgPhone, STATUS } from '../utils.js';
 import { $, go, toast, modal, statusBadge, safetyNote, emptyState } from '../ui.js';
-import { promptInstall, installInstructionsHTML } from '../pwa.js';
+import { promptInstall, installInstructionsHTML, isNativeApp } from '../pwa.js';
 
 const imeiTip = `<div class="tip"><span class="tip-code" dir="ltr">*#06#</span><div><b>كيف أعرف رقم IMEI؟</b><br>اطلب الكود <b dir="ltr">*#06#</b> من لوحة الاتصال على الهاتف وسيظهر الرقم فوراً، أو ابحث عنه على علبة الهاتف أو الفاتورة.</div></div>`;
 
@@ -41,13 +41,13 @@ export async function homeView(el, { user }) {
     <a class="action-card" href="#/about"><span class="ac-icon">💡</span><b>كيف يعمل التطبيق؟</b><small>خطوات بسيطة لكل مستخدم + نصائح الأمان</small></a>
   </section>
   ${safetyNote()}
-  <section class="card install-card">
+  ${isNativeApp() ? '' : `<section class="card install-card">
     <div><b>ثبّت «لقيته» على هاتفك</b><p class="muted">يعمل بدون إنترنت بعد أول فتح، ويفتح كتطبيق مستقل.</p></div>
     <button class="btn btn-primary" id="home-install">⬇️ تثبيت التطبيق</button>
-  </section>`;
+  </section>`}`;
   bindSearch(el);
   el.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => go('#/search?q=' + b.dataset.q)));
-  $('#home-install', el).addEventListener('click', promptInstall);
+  $('#home-install', el)?.addEventListener('click', promptInstall);
 }
 
 export async function searchView(el, { query, user }) {
@@ -177,16 +177,16 @@ export async function aboutView(el) {
     <li>نتيجة الفحص العامة تعرض الماركة والموديل واللون وحالة البلاغ فقط.</li>
     <li>صور البطاقات والسيلفي يطلع عليها فريق الدعم فقط لأغراض التحقق.</li></ul></section>
 
-  <section class="card"><h3>⬇️ تثبيت التطبيق</h3>${installInstructionsHTML()}
-    <button class="btn btn-primary" id="about-install">تثبيت التطبيق</button></section>
+  ${isNativeApp() ? '' : `<section class="card"><h3>⬇️ تثبيت التطبيق</h3>${installInstructionsHTML()}
+    <button class="btn btn-primary" id="about-install">تثبيت التطبيق</button></section>`}
 
   <section class="card" id="backend-info"><h3>🗄️ أين تُحفظ البيانات؟</h3><ul>
     <li>في قاعدة بيانات Postgres على Supabase (خوادم الاتحاد الأوروبي — فرانكفورت).</li>
     <li>الزائر لا يستطيع قراءة الجداول مباشرة؛ الفحص العام يرجع فقط الماركة والموديل واللون والحالة.</li>
     <li>الصور (العلب، البطاقات، السيلفي) في مخازن خاصة وتُعرض بروابط مؤقتة لأصحابها وفريق الدعم فقط.</li>
     <li>الحسابات التجريبية في صفحة الدخول مشتركة بين كل من يجرب التطبيق — لا تضع بيانات حقيقية.</li></ul></section>
-  <p class="muted center small">لقيته — نسخة تجريبية v2.0 · واجهة التطبيق تعمل بدون إنترنت</p>`;
-  $('#about-install', el).addEventListener('click', promptInstall);
+  <p class="muted center small">لقيته — نسخة تجريبية v2.0 · ${isNativeApp() ? 'تطبيق مثبّت' : 'واجهة التطبيق تعمل بدون إنترنت'}</p>`;
+  $('#about-install', el)?.addEventListener('click', promptInstall);
 }
 
 export function notFoundView(el) {

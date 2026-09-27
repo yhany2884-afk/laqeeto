@@ -1,0 +1,26 @@
+{
+  "name": "laqeeto-native",
+  "private": true,
+  "version": "2.0.0",
+  "description": "Laqeeto (لقيته) — Stolen Phone Registry: native wrappers (Capacitor Android/iOS, Electron Windows/macOS) around the web app at the repo root",
+  "author": "Youssef <youssef@users.noreply.github.com>",
+  "homepage": "https://yhany2884-afk.github.io/laqeeto/",
+  "license": "UNLICENSED",
+  "main": "electron/main.js",
+  "scripts": {
+    "build:www": "node scripts/build-www.mjs",
+    "cap:sync": "npm run build:www && cap sync",
+    "electron": "npm run build:www && electron .",
+    "dist:win": "npm run build:www && electron-builder --win nsis --x64 --publish never",
+    "dist:mac": "npm run build:www && electron-builder --mac dmg --arm64 --x64 --publish never",
+    "dist:linux": "npm run build:www && electron-builder --linux dir --publish never"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/ios": "^8.5.2",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
+  }
+}

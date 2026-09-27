@@ -1,6 +1,6 @@
 /* Service worker — caches the whole app shell so it works offline.
  * Bump CACHE_VERSION whenever you change any file so users get the update. */
-const CACHE_VERSION = 'laqeeto-v2.0.0';
+const CACHE_VERSION = 'laqeeto-v2.0.1';
 const ASSETS = [
   './',
   './index.html',

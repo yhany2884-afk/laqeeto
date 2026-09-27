@@ -1,0 +1,185 @@
+name: Build native apps & release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create/update (e.g. v2.0.1). Leave empty to only build artifacts.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}-${{ inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22'
+  TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      name: ${{ steps.v.outputs.name }}
+      code: ${{ steps.v.outputs.code }}
+    steps:
+      - id: v
+        run: |
+          T="${TAG:-v2.0.0}"; V="${T#v}"; V="${V%%-*}"
+          IFS=. read -r MA MI PA <<< "$V"
+          CODE=$(( ${MA:-0} * 10000 + ${MI:-0} * 100 + ${PA:-0} ))
+          echo "name=$V" >> "$GITHUB_OUTPUT"; echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "version $V (code $CODE)"
+
+  android:
+    needs: version
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: native } }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with: { distribution: temurin, java-version: '21' }
+      - uses: actions/setup-node@v7
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm, cache-dependency-path: native/package-lock.json }
+      - run: npm ci
+      - run: npm run build:www && npx cap sync android
+      - name: Decode release keystore
+        env: { KS: '${{ secrets.ANDROID_KEYSTORE_BASE64 }}' }
+        run: |
+          if [ -z "$KS" ]; then echo "::error::ANDROID_KEYSTORE_BASE64 secret missing"; exit 1; fi
+          echo "$KS" | base64 -d > "$RUNNER_TEMP/laqeeto-release.jks"
+      - name: Build signed release APK
+        working-directory: native/android
+        env:
+          LAQEETO_KEYSTORE_PATH: ${{ runner.temp }}/laqeeto-release.jks
+          LAQEETO_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          LAQEETO_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          LAQEETO_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          LAQEETO_VERSION_NAME: ${{ needs.version.outputs.name }}
+          LAQEETO_VERSION_CODE: ${{ needs.version.outputs.code }}
+        run: chmod +x gradlew && ./gradlew assembleRelease --no-daemon --stacktrace
+      - name: Verify signature & manifest
+        run: |
+          BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          "$BT/apksigner" verify --verbose --print-certs "$APK" | grep -E "Verified|Signer #1 certificate (DN|SHA-256)"
+          "$BT/aapt" dump badging "$APK" | grep -E "^package|application-label|uses-permission|sdkVersion"
+          "$BT/aapt" dump permissions "$APK" | grep -q android.permission.CAMERA
+          mkdir -p ../out && cp "$APK" ../out/Laqeeto-Android.apk
+          rm -f "$RUNNER_TEMP/laqeeto-release.jks"
+      - uses: actions/upload-artifact@v7
+        with: { name: android, path: out/Laqeeto-Android.apk, if-no-files-found: error }
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    defaults: { run: { working-directory: native } }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm, cache-dependency-path: native/package-lock.json }
+      - run: npm ci
+      - run: npm version "${{ needs.version.outputs.name }}" --no-git-tag-version --allow-same-version
+      - run: npm run dist:win
+        env: { CSC_IDENTITY_AUTO_DISCOVERY: 'false' }
+      - run: ls -la dist
+      - uses: actions/upload-artifact@v7
+        with: { name: windows, path: native/dist/Laqeeto-Windows-Setup.exe, if-no-files-found: error }
+
+  macos:
+    needs: version
+    runs-on: macos-latest
+    defaults: { run: { working-directory: native } }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm, cache-dependency-path: native/package-lock.json }
+      - run: npm ci
+      - run: npm version "${{ needs.version.outputs.name }}" --no-git-tag-version --allow-same-version
+      - run: npm run dist:mac
+        env: { CSC_IDENTITY_AUTO_DISCOVERY: 'false' }
+      - name: Check bundles
+        run: |
+          ls -la dist
+          for a in dist/mac*/Laqeeto.app; do
+            echo "== $a"; lipo -archs "$a/Contents/MacOS/Laqeeto"
+            codesign -dv "$a" 2>&1 | grep -E "Signature|Identifier|flags" || true
+            codesign --verify --deep --strict "$a" && echo "signature valid (ad-hoc)"
+            /usr/libexec/PlistBuddy -c 'Print :NSCameraUsageDescription' "$a/Contents/Info.plist"
+          done
+      - uses: actions/upload-artifact@v7
+        with: { name: macos, path: native/dist/Laqeeto-macOS-*.dmg, if-no-files-found: error }
+
+  ios:
+    needs: version
+    runs-on: macos-latest
+    continue-on-error: true
+    defaults: { run: { working-directory: native } }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: maxim-lobanov/setup-xcode@v1
+        with: { xcode-version: latest-stable }
+      - uses: actions/setup-node@v7
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm, cache-dependency-path: native/package-lock.json }
+      - run: npm ci
+      - run: npm run build:www && npx cap sync ios
+      - name: Archive (unsigned)
+        working-directory: native/ios/App
+        run: |
+          xcodebuild -version
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            MARKETING_VERSION="${{ needs.version.outputs.name }}" CURRENT_PROJECT_VERSION="${{ needs.version.outputs.code }}" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
+            archive | tail -40
+      - name: Package .ipa
+        run: |
+          APP="$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app"
+          test -d "$APP"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' -c 'Print :CFBundleShortVersionString' -c 'Print :NSCameraUsageDescription' "$APP/Info.plist"
+          test -f "$APP/public/index.html"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload" out && cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/native/out/Laqeeto-iPhone-unsigned.ipa" Payload)
+          ls -la out
+      - uses: actions/upload-artifact@v7
+        with: { name: ios, path: native/out/Laqeeto-iPhone-unsigned.ipa, if-no-files-found: error }
+
+  release:
+    needs: [version, android, windows, macos, ios]
+    if: >-
+      always() && !cancelled() && (github.ref_type == 'tag' || inputs.tag != '') &&
+      needs.android.result == 'success' && needs.windows.result == 'success' && needs.macos.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with: { path: files, merge-multiple: true }
+      - name: Checksums & notes
+        run: |
+          cd files && ls -la && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt && cd ..
+          IOS_STATUS="${{ needs.ios.result }}"
+          sed -e "s/{{VERSION}}/${TAG}/g" native/RELEASE_NOTES.md > notes.md
+          if [ ! -f files/Laqeeto-iPhone-unsigned.ipa ]; then
+            printf '\n> ⚠️ ملف الآيفون (IPA) لم يُبنَ في هذا الإصدار — استخدم نسخة الويب من Safari.\n' >> notes.md
+          fi
+      - name: Create or update release
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "لقيته ${TAG} — تطبيقات أندرويد وويندوز وماك وآيفون" --notes-file notes.md --latest
+          else
+            gh release create "$TAG" --title "لقيته ${TAG} — تطبيقات أندرويد وويندوز وماك وآيفون" --notes-file notes.md --latest --target "$GITHUB_SHA"
+          fi
+          gh release upload "$TAG" files/* --clobber
+          gh release view "$TAG" --json url,assets --jq '.url, (.assets[] | "\(.name)\t\(.size)")'

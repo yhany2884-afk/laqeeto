@@ -5,3 +5,11 @@ __pycache__/
 *.token
 supabase/.temp/
 .DS_Store
+
+# native wrappers (build outputs)
+node_modules/
+native/www/
+native/dist/
+native/out/
+*.jks
+*.keystore
