@@ -30,18 +30,12 @@
 - **فني الصيانة** يسجّل ببيانات المحل وصورة البطاقة وسيلفي مباشر من الكاميرا ولقطة شاشة لـ IMEI هاتفه، وبعد اعتماده من الدعم يفحص الأجهزة (أخضر/أحمر) ويسجّل تسليم الهاتف لمالكه بقائمة تحقق وصور، ثم يؤكد المالك الاستلام من حسابه.
 - **الدعم الفني** يراجع طلبات الفنيين (البطاقة والسيلفي جنباً إلى جنب)، يدير البلاغات والنزاعات وبلاغات الإكراه، يوقف الفنيين المخالفين، ويطلع على سجل العمليات.
 
-## الحسابات التجريبية
-| الدور | البريد | كلمة المرور |
-|---|---|---|
-| مالك هاتف (له بلاغان) | `owner@demo.eg` | `Owner@123` |
-| مالكة (بلاغات أخرى) | `mona@demo.eg` | `Owner@123` |
-| فني صيانة موثّق | `tech@demo.eg` | `Tech@123` |
-| فني قيد المراجعة | `newtech@demo.eg` | `Tech@123` |
-| الدعم الفني (أدمن) | `admin@demo.eg` | `Admin@123` |
+## التجربة
+- **فحص IMEI بدون تسجيل:** أرقام تجريبية: `356938035643809` (مسروق)، `352099001761481` (مفقود)، `868910041234577` (مسروق — رقم المالك ظاهر للعامة)، `353325101234569` (تم التسليم)، `490154203237518` (غير مبلغ عنه).
+- **حساب مالك:** أنشئ حساباً مجانياً من صفحة «إنشاء حساب».
+- **لا توجد حسابات تجريبية بكلمات مرور عامة.** حسابات البيانات التجريبية (البلاغات أعلاه) لها كلمات مرور عشوائية طويلة غير منشورة، وحساب الدعم الفني (الأدمن) حساب شخصي لصاحب المشروع فقط.
 
-أرقام IMEI تجريبية للفحص: `356938035643809` (مسروق)، `352099001761481` (مفقود)، `868910041234577` (مسروق — رقم المالك ظاهر للعامة)، `353325101234569` (تم التسليم)، `490154203237518` (غير مبلغ عنه — جرّب الإبلاغ به).
-
-> الحسابات التجريبية **مشتركة** بين كل الزوار، فقد يغيّر أحدهم بياناتها. لإعادتها لحالتها الأصلية: `python3 supabase/setup.py --steps seed`.
+> ⚠️ لا تنشر أبداً كلمة مرور حساب أدمن في المستودع أو في واجهة التطبيق. لإنشاء حساب أدمن: سجّل حساباً عادياً ثم رقّه عبر SQL (`update public.profiles set role = 'admin' where id = …`) — لا يمكن لأي مستخدم ترقية نفسه.
 
 ## الخادم: Supabase
 | المكوّن | الاستخدام |
@@ -80,7 +74,7 @@ python3 supabase/setup.py --steps schema  # خطوات محددة (مثلاً ب
 | `schema` | يطبّق `supabase/schema.sql` (قابل لإعادة التشغيل): الجداول، RLS، الدوال، الحاويات وسياساتها. |
 | `auth` | رابط الموقع وقائمة روابط إعادة التوجيه (GitHub Pages + localhost)، إيقاف تأكيد البريد، حد أدنى 6 أحرف لكلمة المرور. |
 | `config` | يكتب `js/config.js` بالرابط والمفتاح العام. |
-| `seed` | ينشئ الحسابات والبلاغات التجريبية عبر الواجهة العامة (المفتاح العام) + SQL لترقية الأدمن واعتماد الفني. |
+| `seed` | ينشئ حسابات وبلاغات البيانات التجريبية بكلمات مرور **عشوائية** (أو من متغيرات البيئة `LAQEETO_DEMO_PASSWORD_*`) لا تُطبع ولا تُحفظ في المستودع، ولا ينشئ أي حساب أدمن. عبر الواجهة العامة + SQL لاعتماد الفني. |
 
 لا يطبع السكربت ولا يحفظ داخل المستودع رمز الوصول ولا مفتاح `service_role` ولا كلمة مرور قاعدة البيانات.
 
@@ -163,7 +157,7 @@ npx @capacitor/assets generate --android --ios   # إعادة توليد الأ�
 - مطابقة الوجه بين السيلفي والبطاقة **محاكاة** — المراجعة يدوية من الدعم.
 - فيديو الإثبات في النزاعات يُحفظ **كاسم ملف فقط** (لا يُرفع الفيديو).
 - الرسائل تتحدث بالاستطلاع كل 6 ثوانٍ (وليس Realtime) ولا توجد إشعارات Push بعد.
-- الحسابات التجريبية مشتركة، والمشروع قد يتوقف بعد أسبوع خمول (خطة مجانية).
+- المشروع قد يتوقف بعد أسبوع خمول (خطة مجانية).
 
 ## خارطة الطريق للإنتاج
 1. **البريد و SMS:** SMTP خاص + تفعيل تأكيد البريد، وOTP لأرقام الموبايل قبل كشف بيانات التواصل.
@@ -183,7 +177,7 @@ npx @capacitor/assets generate --android --ios   # إعادة توليد الأ�
 - **Email confirmation is OFF** for the prototype (Supabase's built-in mailer is heavily rate-limited); enable it with a custom SMTP before production. The UI already handles the "confirm your email" case.
 - **Setup:** `SUPABASE_ACCESS_TOKEN=… python3 supabase/setup.py [--steps project,schema,auth,config,seed]` (stdlib only; token may also live in `~/.supabase_token`, DB password is written to `~/.laqeeto_db_password`, chmod 600).
 - **Free tier:** the project **pauses after ~1 week of inactivity** — restore it from the Supabase dashboard (data is kept).
-- **Limitations:** simulated face match (manual admin review), dispute video stored as file name only, chat uses 6-second polling (no realtime/push), shared demo accounts.
-- **Demo accounts:** see the table above (`owner@demo.eg / Owner@123`, `tech@demo.eg / Tech@123`, `admin@demo.eg / Admin@123`, …). Reset with `python3 supabase/setup.py --steps seed`.
+- **Limitations:** simulated face match (manual admin review), dispute video stored as file name only, chat uses 6-second polling (no realtime/push).
+- **No public demo credentials:** seed accounts get random passwords (or `LAQEETO_DEMO_PASSWORD_*` env vars); the seed never creates an admin. Admins are promoted manually via SQL.
 - **Native apps** (`native/`, built by `.github/workflows/build.yml` on `v*` tags): signed Android APK (Capacitor 8), Windows NSIS installer and macOS arm64/x64 DMGs (Electron, unsigned/ad-hoc), unsigned iPhone IPA for sideloading. Direct links: `https://github.com/yhany2884-afk/laqeeto/releases/latest/download/<file>`.
 - **Roadmap:** SMTP + SMS OTP, real KYC face-match + liveness, Realtime + push, CAPTCHA, legal/privacy review (Egyptian PDPL 151/2020, police/NTRA cooperation), Capacitor store builds.

@@ -3,13 +3,6 @@ import db from '../db.js';
 import { esc, validateEmail, validateEgPhone, validateImei, GOVERNORATES } from '../utils.js';
 import { $, go, toast, photoField, bindPhotoFields, checkPhotoFields } from '../ui.js';
 
-const DEMO = [
-  { role: 'مالك هاتف', email: 'owner@demo.eg', pw: 'Owner@123' },
-  { role: 'مالكة (بلاغات أخرى)', email: 'mona@demo.eg', pw: 'Owner@123' },
-  { role: 'فني صيانة (موثّق)', email: 'tech@demo.eg', pw: 'Tech@123' },
-  { role: 'فني (قيد المراجعة)', email: 'newtech@demo.eg', pw: 'Tech@123' },
-  { role: 'الدعم الفني (أدمن)', email: 'admin@demo.eg', pw: 'Admin@123' },
-];
 export const homeFor = (u) => ({ owner: '#/owner', technician: '#/tech', admin: '#/admin', guest: '#/inbox' }[u?.role] || '#/');
 
 function afterAuth(u, query) {
@@ -33,20 +26,12 @@ export async function loginView(el, { query }) {
         <a href="#/tech-signup">تسجيل فني صيانة</a>
       </div>
     </section>
-    <section class="card demo-creds">
-      <h3>🔑 حسابات تجريبية</h3>
-      <p class="muted small">نسخة تجريبية — الحسابات مشتركة بين كل المجربين، فلا تضع بيانات حقيقية. اضغط على أي حساب لملء البيانات.</p>
-      <table class="table"><thead><tr><th>الدور</th><th>البريد</th><th>كلمة المرور</th></tr></thead><tbody>
-      ${DEMO.map((d) => `<tr class="demo-row" data-email="${d.email}" data-pw="${d.pw}" tabindex="0"><td>${esc(d.role)}</td><td dir="ltr">${d.email}</td><td dir="ltr">${d.pw}</td></tr>`).join('')}
-      </tbody></table>
+    <section class="card">
+      <h3>ℹ️ تجربة التطبيق</h3>
+      <p class="muted small">أنشئ حساب مالك هاتف مجاناً لتجربة الإبلاغ والرسائل، أو افحص أي رقم IMEI من الصفحة الرئيسية بدون تسجيل. هذه نسخة تجريبية — لا تضع بيانات حساسة.</p>
     </section>
   </div>`;
   const form = $('#login-form', el);
-  el.querySelectorAll('.demo-row').forEach((r) => {
-    const fill = () => { form.email.value = r.dataset.email; form.password.value = r.dataset.pw; form.password.focus(); };
-    r.addEventListener('click', fill);
-    r.addEventListener('keydown', (e) => { if (e.key === 'Enter') fill(); });
-  });
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
