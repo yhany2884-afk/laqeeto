@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+.env.*
+*.token
+supabase/.temp/
+.DS_Store

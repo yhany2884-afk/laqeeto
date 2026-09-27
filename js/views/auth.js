@@ -35,7 +35,7 @@ export async function loginView(el, { query }) {
     </section>
     <section class="card demo-creds">
       <h3>🔑 حسابات تجريبية</h3>
-      <p class="muted small">نسخة تجريبية — اضغط على أي حساب لملء البيانات.</p>
+      <p class="muted small">نسخة تجريبية — الحسابات مشتركة بين كل المجربين، فلا تضع بيانات حقيقية. اضغط على أي حساب لملء البيانات.</p>
       <table class="table"><thead><tr><th>الدور</th><th>البريد</th><th>كلمة المرور</th></tr></thead><tbody>
       ${DEMO.map((d) => `<tr class="demo-row" data-email="${d.email}" data-pw="${d.pw}" tabindex="0"><td>${esc(d.role)}</td><td dir="ltr">${d.email}</td><td dir="ltr">${d.pw}</td></tr>`).join('')}
       </tbody></table>
@@ -79,7 +79,7 @@ export async function signupView(el, { query }) {
   el.innerHTML = `<div class="auth-wrap single"><section class="card">
     <h2 class="page-title">إنشاء حساب مالك هاتف</h2>
     <form id="signup-form" class="form" novalidate>${accountFields}
-      <p class="muted small">🔒 نموذج أولي: كلمة المرور تُحفظ مشفّرة (SHA-256) على هذا الجهاز فقط.</p>
+      <p class="muted small">🔒 كلمة المرور تُدار بأمان عبر Supabase Auth ولا نراها أبداً.</p>
       <button class="btn btn-primary btn-block" type="submit">إنشاء الحساب</button></form>
     <div class="auth-links"><a href="#/login">لديك حساب؟ سجّل الدخول</a><a href="#/tech-signup">أنت فني صيانة؟</a></div>
   </section></div>`;
@@ -88,11 +88,13 @@ export async function signupView(el, { query }) {
     e.preventDefault();
     const err = validateAccount(f);
     if (err) return toast(err, 'error');
+    const btn = f.querySelector('button[type=submit]'); btn.disabled = true;
     try {
       const u = await db.signUp({ role: 'owner', name: f.name.value, email: f.email.value, phone: validateEgPhone(f.phone.value).value, password: f.password.value });
+      if (u?.needsConfirmation) { toast('أرسلنا رسالة تأكيد إلى بريدك — افتحها ثم سجّل الدخول', 'ok', 8000); go('#/login'); return; }
       toast('تم إنشاء حسابك ✅', 'ok');
       afterAuth(u, query);
-    } catch (e2) { toast(e2.message, 'error'); }
+    } catch (e2) { toast(e2.message, 'error'); } finally { btn.disabled = false; }
   });
 }
 
@@ -154,15 +156,18 @@ export async function techSignupView(el) {
     if (!checkPhotoFields(f, state)) return toast('صورة البطاقة ولقطة الشاشة والسيلفي المباشر مطلوبة', 'error');
     if (f.deviceImei.value && !validateImei(f.deviceImei.value).ok) return toast('IMEI هاتفك غير صحيح', 'error');
     if (!f.agree.checked) return toast('يجب الموافقة على التعهد', 'error');
+    const btn = f.querySelector('button[type=submit]');
+    btn.disabled = true; btn.textContent = 'جارٍ رفع المستندات…';
     try {
-      await db.signUp({
+      const res = await db.signUp({
         role: 'technician', name: f.name.value, email: f.email.value, phone: validateEgPhone(f.phone.value).value, password: f.password.value,
         tech: { shopName: f.shopName.value.trim(), governorate: f.governorate.value, address: f.address.value.trim(), deviceImei: validateImei(f.deviceImei.value).value, idPhoto: state.idPhoto, selfie: state.selfie, selfieMethod: state.selfieMethod, deviceShot: state.deviceShot },
       });
       obs.disconnect();
+      if (res?.needsConfirmation) { toast('أكّد بريدك الإلكتروني ثم سجّل الدخول لرفع المستندات', 'ok', 8000); go('#/login'); return; }
       toast('تم إرسال طلبك — الحساب قيد المراجعة', 'ok');
       window.dispatchEvent(new Event('auth-changed'));
       go('#/tech');
-    } catch (e2) { toast(e2.message, 'error'); }
+    } catch (e2) { toast(e2.message, 'error'); } finally { btn.disabled = false; btn.textContent = 'إرسال طلب التوثيق'; }
   });
 }

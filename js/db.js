@@ -1,493 +1,388 @@
 /**
- * طبقة البيانات — Data layer
+ * طبقة البيانات — Data layer (Supabase: Postgres + Auth + Storage)
  * ----------------------------------------------------------------------------
- * PROTOTYPE: everything is stored on THIS device only.
- *   - JSON records  -> localStorage (key prefix "laqeeto.v1.")
- *   - Images/files  -> IndexedDB ("laqeeto-files"), falls back to localStorage
+ * The views ONLY talk to the exported `db` object. Every method is async and
+ * returns the same camelCase shapes the old localStorage prototype returned.
+ * Security is enforced on the server (Row Level Security + SECURITY DEFINER
+ * RPCs in supabase/schema.sql); checks here are for UX only.
  *
- * The rest of the app ONLY talks to the exported `db` object and every method
- * is async (returns a Promise). To move to Firebase / Supabase later, write a
- * new module that exports the same methods (same names, same shapes) and change
- * the import in the views. Security rules (who may read/write what) must then
- * be enforced on the server — the role checks here are for UX only.
+ * Guests (finders without an account) keep their conversation tokens locally
+ * (localStorage "laqeeto.guest*") and talk to the owner via rate-limited RPCs.
  * ----------------------------------------------------------------------------
  */
-import { uid, sha256, normalizeId, ACTIVE_STATUSES, ROLE_LABEL } from './utils.js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, SITE_URL } from './config.js';
+import { uid as makeId } from './utils.js';
 
-const NS = 'laqeeto.v1.';
-const COLLECTIONS = ['users', 'reports', 'conversations', 'messages', 'handovers', 'disputes', 'audit'];
-const now = () => Date.now();
+const GUEST_KEY = 'laqeeto.guest';
+const GUEST_CONVS_KEY = 'laqeeto.guestConvs';
+const PROFILE_KEY = 'laqeeto.profile';
+const ts = (v) => (v ? Date.parse(v) : null);
 
-/* ---------------- low-level storage ---------------- */
-const store = {
-  all(col) {
-    try { return JSON.parse(localStorage.getItem(NS + col) || '[]'); } catch { return []; }
-  },
-  save(col, arr) { localStorage.setItem(NS + col, JSON.stringify(arr)); },
-  get(col, id) { return this.all(col).find((r) => r.id === id) || null; },
-  insert(col, rec) { const a = this.all(col); a.push(rec); this.save(col, a); return rec; },
-  update(col, id, patch) {
-    const a = this.all(col);
-    const i = a.findIndex((r) => r.id === id);
-    if (i < 0) throw new Error('السجل غير موجود');
-    a[i] = typeof patch === 'function' ? patch(structuredClone(a[i])) : { ...a[i], ...patch };
-    this.save(col, a);
-    return a[i];
-  },
-};
+export const isConfigured = () => !!SUPABASE_URL && !/YOUR_/.test(SUPABASE_URL) && !!SUPABASE_ANON_KEY && !/YOUR_/.test(SUPABASE_ANON_KEY);
 
-/* ---------------- files (IndexedDB) ---------------- */
-let idbPromise = null;
-function idb() {
-  if (!idbPromise) {
-    idbPromise = new Promise((resolve, reject) => {
-      if (!('indexedDB' in globalThis)) return reject(new Error('no idb'));
-      const req = indexedDB.open('laqeeto-files', 1);
-      req.onupgradeneeded = () => req.result.createObjectStore('files');
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    }).catch((e) => { idbPromise = null; throw e; });
+let sb = null;
+function client() {
+  if (!sb) {
+    if (!isConfigured()) throw new Error('لم يتم ربط التطبيق بقاعدة البيانات بعد (js/config.js)');
+    if (!window.supabase?.createClient) throw new Error('تعذر تحميل مكتبة Supabase');
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'pkce', storageKey: 'laqeeto-auth' },
+    });
   }
-  return idbPromise;
+  return sb;
 }
-function idbOp(mode, fn) {
-  return idb().then((d) => new Promise((resolve, reject) => {
-    const tx = d.transaction('files', mode);
-    const r = fn(tx.objectStore('files'));
-    tx.oncomplete = () => resolve(r && 'result' in r ? r.result : undefined);
-    tx.onerror = () => reject(tx.error);
-  }));
+
+/* ---------------- errors ---------------- */
+const AUTH_MESSAGES = [
+  [/invalid login credentials/i, 'البريد الإلكتروني أو كلمة المرور غير صحيحة'],
+  [/already registered|already been registered|user already exists/i, 'هذا البريد مسجل بالفعل، سجّل الدخول بدلاً من ذلك'],
+  [/email not confirmed/i, 'لم يتم تأكيد البريد الإلكتروني بعد — افتح رسالة التأكيد أولاً'],
+  [/password should be at least|weak password/i, 'كلمة المرور ضعيفة (6 أحرف على الأقل)'],
+  [/rate limit|too many requests|over_request_rate_limit|security purposes/i, 'محاولات كثيرة — انتظر قليلاً ثم حاول مرة أخرى'],
+  [/invalid.*email|email address .* is invalid/i, 'البريد الإلكتروني غير صالح'],
+  [/failed to fetch|networkerror|load failed|fetch failed/i, 'تعذر الاتصال بالخادم — تحقق من اتصالك بالإنترنت'],
+  [/jwt expired/i, 'انتهت الجلسة — سجّل الدخول مرة أخرى'],
+  [/permission denied|row-level security|violates row-level/i, 'ليست لديك صلاحية لهذا الإجراء'],
+  [/duplicate key value.*reports_one_active_imei1/i, 'يوجد بلاغ نشط بالفعل لهذا الرقم. إذا كان الهاتف ملكك فعلاً افتح نزاعاً أو تواصل مع الدعم الفني.'],
+  [/violates check constraint/i, 'بعض البيانات غير صحيحة — راجع الحقول'],
+  [/payload too large|exceeded the maximum allowed size/i, 'حجم الصورة كبير جداً'],
+];
+function toError(error) {
+  const msg = error?.message || String(error || 'خطأ غير معروف');
+  if (/[\u0600-\u06FF]/.test(msg)) return new Error(msg); // server already speaks Arabic
+  for (const [re, ar] of AUTH_MESSAGES) if (re.test(msg)) return new Error(ar);
+  console.warn('db error', error);
+  return new Error('حدث خطأ: ' + msg);
+}
+async function run(promise) {
+  let res;
+  try { res = await promise; } catch (e) { throw toError(e); }
+  if (res.error) throw toError(res.error);
+  return res.data;
+}
+const rpc = (fn, args = {}) => run(client().rpc(fn, args));
+
+/* ---------------- mapping (snake_case rows -> app shapes) ---------------- */
+function mapUser(p) {
+  if (!p) return null;
+  return {
+    id: p.id, role: p.role, name: p.name, email: p.email, phone: p.phone, createdAt: ts(p.created_at),
+    tech: p.role === 'technician' ? {
+      shopName: p.tech_shop_name, address: p.tech_address, governorate: p.tech_governorate, deviceImei: p.tech_device_imei,
+      idPhoto: p.tech_id_photo, selfie: p.tech_selfie, selfieMethod: p.tech_selfie_method, deviceShot: p.tech_device_shot,
+      status: p.tech_status, faceMatch: p.tech_face_match, submittedAt: ts(p.tech_submitted_at),
+      reviewedByName: p.tech_reviewed_by_name, reviewedAt: ts(p.tech_reviewed_at), reviewNote: p.tech_review_note,
+    } : null,
+  };
+}
+function mapReport(r) {
+  if (!r) return null;
+  return {
+    id: r.id, ownerId: r.owner_id, ownerName: r.owner?.name, ownerPhone: r.owner?.phone, type: r.type, status: r.status,
+    brand: r.brand, model: r.model, color: r.color, imei1: r.imei1, imei2: r.imei2 || '', serial: r.serial || '',
+    incidentDate: r.incident_date || '', governorate: r.governorate || '', place: r.place || '', description: r.description || '',
+    boxPhoto: r.box_photo, invoicePhoto: r.invoice_photo, policeNumber: r.police_number || '', policePhoto: r.police_photo,
+    contact: r.contact || {}, createdAt: ts(r.created_at), updatedAt: ts(r.updated_at),
+    history: (r.history || []).sort((a, b) => a.id - b.id).map((h) => ({ status: h.status, note: h.note, byName: h.by_name, at: ts(h.at) })),
+  };
+}
+const mapPublic = (r) => ({
+  id: r.id, brand: r.brand, model: r.model, color: r.color, type: r.type, status: r.status, active: r.active,
+  reportedAt: ts(r.reported_at), governorate: r.governorate || '', publicContact: r.public_contact || {}, isMine: !!r.is_mine,
+});
+function mapMessage(m) {
+  return {
+    id: m.id, fromId: m.sender_id || (m.sender_kind === 'guest' ? 'guest' : 'system'), fromName: m.sender_name, fromRole: m.sender_role,
+    kind: m.kind, text: m.body, data: m.data, createdAt: ts(m.created_at),
+  };
+}
+function mapConversation(c) {
+  return {
+    id: c.id, reportId: c.report_id, iAmOwner: c.viewer === 'owner',
+    other: { name: c.other_name || (c.other_role === 'guest' ? 'زائر' : 'مستخدم'), role: c.other_role },
+    report: c.report ? { ...c.report } : null,
+    messages: (c.messages || []).map(mapMessage),
+  };
+}
+function mapHandover(h) {
+  return {
+    id: h.id, reportId: h.report_id, technicianId: h.technician_id, technicianName: h.technician_name, shopName: h.shop_name,
+    ownerId: h.owner_id, checklist: h.checklist, deviceImei: h.device_imei, ownerIdPhoto: h.owner_id_photo, selfie: h.selfie,
+    notes: h.notes, status: h.status, createdAt: ts(h.created_at), confirmedAt: ts(h.confirmed_at),
+    report: { brand: h.device_brand, model: h.device_model, color: h.device_color },
+  };
+}
+function mapDispute(d) {
+  return {
+    id: d.id, reportId: d.report_id, ownerId: d.owner_id, ownerName: d.owner_name, handoverId: d.handover_id, technicianId: d.technician_id,
+    coercion: d.coercion, description: d.description, policeNumber: d.police_number || '', evidenceFileName: d.evidence_file_name || '',
+    evidenceLink: d.evidence_link || '', witnesses: d.witnesses || '', status: d.status, createdAt: ts(d.created_at), updatedAt: ts(d.updated_at),
+    notes: (d.notes || []).sort((a, b) => a.id - b.id).map((n) => ({ at: ts(n.created_at), byName: n.author_name, text: n.body })),
+    report: d.report || null,
+    technician: d.technician ? { id: d.technician.id, name: d.technician.name, tech: { shopName: d.technician.tech_shop_name, status: d.technician.tech_status } } : null,
+  };
+}
+
+/* ---------------- files (Supabase Storage, private buckets + signed URLs) ---------------- */
+const urlCache = new Map();
+async function sessionUserId() {
+  const { data } = await client().auth.getSession();
+  return data.session?.user?.id || null;
 }
 const files = {
-  async put(dataUrl) {
+  /** Upload a data URL into `bucket/<uid>/<random>.jpg`; returns the stored reference "bucket/path" */
+  async put(dataUrl, bucket = 'report-photos') {
     if (!dataUrl) return null;
-    const id = uid('file');
-    try { await idbOp('readwrite', (s) => s.put(dataUrl, id)); } catch { localStorage.setItem(NS + 'file.' + id, dataUrl); }
-    return id;
+    const userId = await sessionUserId();
+    if (!userId) throw new Error('يجب تسجيل الدخول لرفع الصور');
+    const blob = await (await fetch(dataUrl)).blob();
+    const ext = blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg';
+    const path = `${userId}/${(crypto.randomUUID ? crypto.randomUUID() : makeId('f'))}.${ext}`;
+    await run(client().storage.from(bucket).upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: false }));
+    return `${bucket}/${path}`;
   },
-  async get(id) {
-    if (!id) return null;
-    try {
-      const v = await idbOp('readonly', (s) => s.get(id));
-      if (v) return v;
-    } catch { /* fall through */ }
-    return localStorage.getItem(NS + 'file.' + id);
-  },
-  async clear() {
-    try { await idbOp('readwrite', (s) => s.clear()); } catch { /* ignore */ }
-    Object.keys(localStorage).filter((k) => k.startsWith(NS + 'file.')).forEach((k) => localStorage.removeItem(k));
+  /** Signed URL (1h) for a stored reference; null if not allowed / missing */
+  async get(ref) {
+    if (!ref) return null;
+    const hit = urlCache.get(ref);
+    if (hit && hit.exp > Date.now()) return hit.url;
+    const i = ref.indexOf('/');
+    const { data, error } = await client().storage.from(ref.slice(0, i)).createSignedUrl(ref.slice(i + 1), 3600);
+    if (error || !data?.signedUrl) return null;
+    urlCache.set(ref, { url: data.signedUrl, exp: Date.now() + 50 * 60 * 1000 });
+    return data.signedUrl;
   },
 };
 
 /* ---------------- session ---------------- */
-const SESSION_KEY = NS + 'session';
-function sessionUserId() {
-  try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null')?.userId || null; } catch { return null; }
+let profileCache = null;
+let profileAt = 0;
+function guestIdentity() {
+  try { return JSON.parse(localStorage.getItem(GUEST_KEY) || 'null'); } catch { return null; }
 }
-function currentUserSync() {
-  const id = sessionUserId();
-  return id ? store.get('users', id) : null;
+const guestConvs = () => { try { return JSON.parse(localStorage.getItem(GUEST_CONVS_KEY) || '[]'); } catch { return []; } };
+const guestToken = (id) => guestConvs().find((c) => c.id === id)?.token;
+function guestUser() {
+  const g = guestIdentity();
+  return g ? { id: 'guest', role: 'guest', name: g.name, phone: g.phone, email: '' } : null;
 }
-function requireUser(roles) {
-  const u = currentUserSync();
-  if (!u) throw new Error('يجب تسجيل الدخول أولاً');
-  if (roles && !roles.includes(u.role)) throw new Error('ليست لديك صلاحية لهذا الإجراء');
-  return u;
-}
-function requireApprovedTech() {
-  const u = requireUser(['technician']);
-  if (u.tech?.status !== 'approved') throw new Error('حساب الفني غير مفعّل بعد');
-  return u;
-}
-async function hashPassword(password, salt) { return sha256(`${salt}:${password}`); }
-const publicUser = (u) => {
-  if (!u) return null;
-  const { passwordHash, salt, ...rest } = u;
-  return rest;
-};
-
-/* ---------------- audit ---------------- */
-function audit(action, details = '', actor = currentUserSync(), meta = {}) {
-  store.insert('audit', {
-    id: uid('log'), at: now(), action, details,
-    actorId: actor?.id || 'system', actorName: actor?.name || 'النظام', actorRole: actor?.role || 'system', ...meta,
-  });
+async function isGuestMode() {
+  return !(await sessionUserId()) && !!guestIdentity();
 }
 
-/* ---------------- helpers ---------------- */
-function pushHistory(r, status, by, note = '') {
-  r.history = r.history || [];
-  r.history.push({ status, at: now(), by: by?.id || 'system', byName: by?.name || 'النظام', note });
-}
-function reportLabel(r) { return r ? `${r.brand} ${r.model}` : ''; }
-
-/** Public (sanitised) view of a report — the ONLY shape exposed to anonymous users */
-function publicReportView(r) {
-  const c = r.contact || {};
-  const publicContact = {};
-  if (c.phone?.public && c.phone.value) publicContact.phone = c.phone.value;
-  if (c.email?.public && c.email.value) publicContact.email = c.email.value;
-  const socials = (c.socials || []).filter((s) => s.public && s.value).map((s) => s.value);
-  if (socials.length) publicContact.socials = socials;
-  return {
-    id: r.id, brand: r.brand, model: r.model, color: r.color, type: r.type, status: r.status,
-    active: ACTIVE_STATUSES.includes(r.status), reportedAt: r.createdAt, governorate: r.governorate || '',
-    ownerId: r.ownerId, publicContact,
-  };
-}
-
-function ensureConversation(report, otherUser) {
-  const convs = store.all('conversations');
-  let conv = convs.find((c) => c.reportId === report.id && c.participants.includes(report.ownerId) && c.participants.includes(otherUser.id));
-  if (!conv) {
-    conv = store.insert('conversations', {
-      id: uid('conv'), reportId: report.id, participants: [report.ownerId, otherUser.id],
-      createdAt: now(), updatedAt: now(), lastText: '',
-    });
-  }
-  return conv;
-}
-function addMessage(conv, from, text, kind = 'text', data = null) {
-  const msg = store.insert('messages', {
-    id: uid('msg'), conversationId: conv.id, fromId: from?.id || 'system', fromName: from?.name || 'النظام',
-    fromRole: from?.role || 'system', text, kind, data, createdAt: now(), readBy: from ? [from.id] : [],
-  });
-  store.update('conversations', conv.id, { updatedAt: now(), lastText: text.slice(0, 120) });
-  return msg;
-}
-
-/* ============================================================================
- *  PUBLIC API
- * ==========================================================================*/
 export const db = {
   files,
+  isConfigured,
 
-  /* ---------- lifecycle ---------- */
-  isSeeded() { return localStorage.getItem(NS + 'seeded') === '1'; },
   async init() {
-    if (!this.isSeeded()) {
-      const { seed } = await import('./seed.js');
-      await seed(this, { store, hashPassword, uid, audit });
-      localStorage.setItem(NS + 'seeded', '1');
-    }
-  },
-  async resetDemo() {
-    COLLECTIONS.forEach((c) => localStorage.removeItem(NS + c));
-    localStorage.removeItem(SESSION_KEY);
-    localStorage.removeItem(NS + 'seeded');
-    await files.clear();
-    await this.init();
+    if (!isConfigured()) return;
+    client().auth.onAuthStateChange((event) => {
+      if (['SIGNED_IN', 'SIGNED_OUT', 'USER_UPDATED', 'TOKEN_REFRESHED'].includes(event)) {
+        profileAt = 0;
+        setTimeout(() => window.dispatchEvent(new Event('auth-changed')), 0);
+      }
+    });
+    await client().auth.getSession();
   },
 
   /* ---------- auth ---------- */
-  async currentUser() { return publicUser(currentUserSync()); },
-  async signUp({ role = 'owner', name, email, phone, password, tech = null }) {
-    if (!['owner', 'technician'].includes(role)) throw new Error('نوع حساب غير مسموح');
-    email = String(email || '').trim().toLowerCase();
-    if (store.all('users').some((u) => u.email === email)) throw new Error('هذا البريد مسجل بالفعل، سجّل الدخول بدلاً من ذلك');
-    const salt = uid('salt');
-    const user = {
-      id: uid('usr'), role, name: String(name).trim(), email, phone: phone || '',
-      salt, passwordHash: await hashPassword(password, salt), createdAt: now(),
-    };
-    if (role === 'technician') {
-      user.tech = {
-        shopName: tech.shopName, address: tech.address, governorate: tech.governorate,
-        deviceImei: tech.deviceImei || '',
-        idPhoto: await files.put(tech.idPhoto),
-        selfie: await files.put(tech.selfie),
-        selfieMethod: tech.selfieMethod || 'live-camera',
-        deviceShot: await files.put(tech.deviceShot),
-        status: 'pending', faceMatch: 'simulated-pending', submittedAt: now(),
-      };
+  async currentUser({ fresh = false } = {}) {
+    if (!isConfigured()) return null;
+    const userId = await sessionUserId();
+    if (!userId) { profileCache = null; return guestUser(); }
+    if (!fresh && profileCache?.id === userId && Date.now() - profileAt < 15000) return profileCache;
+    try {
+      const row = await run(client().from('profiles').select('*').eq('id', userId).maybeSingle());
+      if (!row) return null;
+      profileCache = mapUser(row); profileAt = Date.now();
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(profileCache));
+      return profileCache;
+    } catch (e) {
+      const cached = JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null'); // offline fallback
+      if (cached?.id === userId) return cached;
+      throw e;
     }
-    store.insert('users', user);
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.id }));
-    audit(role === 'technician' ? 'تسجيل فني جديد (بانتظار التحقق)' : 'إنشاء حساب مالك', user.email, user);
-    return publicUser(user);
+  },
+
+  /** Sign up. Returns the user, or {needsConfirmation:true} if the project requires e-mail confirmation. */
+  async signUp({ role = 'owner', name, email, phone, password, tech = null }) {
+    const meta = { name: String(name).trim(), phone: phone || '', role: role === 'technician' ? 'technician' : 'owner' };
+    if (tech) Object.assign(meta, { shop_name: tech.shopName, address: tech.address, governorate: tech.governorate, device_imei: tech.deviceImei || '' });
+    const data = await run(client().auth.signUp({ email: String(email).trim().toLowerCase(), password, options: { data: meta, emailRedirectTo: SITE_URL } }));
+    if (!data.session) return { needsConfirmation: true };
+    localStorage.removeItem(GUEST_KEY);
+    if (role === 'technician' && tech) await this.submitTechnicianDocuments(tech);
+    profileAt = 0;
+    return this.currentUser({ fresh: true });
+  },
+  async submitTechnicianDocuments({ idPhoto, selfie, selfieMethod, deviceShot }) {
+    const [a, b, c] = await Promise.all([files.put(idPhoto, 'tech-docs'), files.put(selfie, 'tech-docs'), files.put(deviceShot, 'tech-docs')]);
+    await rpc('submit_technician_documents', { p_id_photo: a, p_selfie: b, p_selfie_method: selfieMethod || 'live-camera', p_device_shot: c });
+    profileAt = 0;
   },
   async login(email, password) {
-    email = String(email || '').trim().toLowerCase();
-    const u = store.all('users').find((x) => x.email === email && x.role !== 'guest');
-    if (!u || (await hashPassword(password, u.salt)) !== u.passwordHash) throw new Error('البريد الإلكتروني أو كلمة المرور غير صحيحة');
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: u.id }));
-    audit('تسجيل دخول', ROLE_LABEL[u.role], u);
-    return publicUser(u);
+    await run(client().auth.signInWithPassword({ email: String(email).trim().toLowerCase(), password }));
+    localStorage.removeItem(GUEST_KEY);
+    profileAt = 0;
+    rpc('log_login').catch(() => {});
+    return this.currentUser({ fresh: true });
   },
-  /** Quick guest identity for finders: name + phone, no password */
+  /** Finder without an account: name + phone kept on this device only */
   async guestLogin({ name, phone }) {
-    let u = store.all('users').find((x) => x.role === 'guest' && x.phone === phone);
-    if (!u) {
-      u = store.insert('users', { id: uid('gst'), role: 'guest', name: String(name).trim(), phone, email: '', createdAt: now() });
-    }
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: u.id }));
-    audit('دخول كضيف', phone, u);
-    return publicUser(u);
+    localStorage.setItem(GUEST_KEY, JSON.stringify({ name: String(name).trim(), phone }));
+    return guestUser();
   },
-  async logout() { localStorage.removeItem(SESSION_KEY); },
-  async getUser(id) { return publicUser(store.get('users', id)); },
+  async logout() {
+    localStorage.removeItem(GUEST_KEY);
+    localStorage.removeItem(PROFILE_KEY);
+    profileCache = null; urlCache.clear();
+    if (isConfigured()) await client().auth.signOut().catch(() => {});
+  },
+  async getUser(id) {
+    return mapUser(await run(client().from('profiles').select('*').eq('id', id).maybeSingle()));
+  },
 
   /* ---------- reports ---------- */
   async createReport(data) {
-    const u = requireUser(['owner']);
-    const imei1 = normalizeId(data.imei1);
-    const ids = [imei1, normalizeId(data.imei2), normalizeId(data.serial)].filter(Boolean);
-    const clash = store.all('reports').find((r) => ACTIVE_STATUSES.includes(r.status) &&
-      [r.imei1, r.imei2, r.serial].filter(Boolean).some((x) => ids.includes(x)));
-    if (clash) {
-      audit('محاولة بلاغ مكرر', `IMEI/Serial مسجل في بلاغ نشط ${clash.id}`, u);
-      throw new Error('يوجد بلاغ نشط بالفعل لهذا الرقم. إذا كان الهاتف ملكك فعلاً افتح نزاعاً أو تواصل مع الدعم الفني.');
-    }
-    const r = {
-      id: uid('rep'), ownerId: u.id, type: data.type === 'lost' ? 'lost' : 'stolen',
-      status: data.type === 'lost' ? 'lost' : 'stolen',
-      brand: data.brand, model: data.model, color: data.color,
-      imei1, imei2: normalizeId(data.imei2), serial: normalizeId(data.serial),
-      incidentDate: data.incidentDate || '', governorate: data.governorate || '', place: data.place || '', description: data.description || '',
-      boxPhoto: await files.put(data.boxPhoto), invoicePhoto: await files.put(data.invoicePhoto),
-      policeNumber: data.policeNumber || '', policePhoto: await files.put(data.policePhoto),
-      contact: data.contact, createdAt: now(), updatedAt: now(), history: [],
-    };
-    pushHistory(r, r.status, u, 'إنشاء البلاغ');
-    store.insert('reports', r);
-    audit('إنشاء بلاغ', `${reportLabel(r)} — IMEI ${imei1}`, u, { reportId: r.id });
-    return r;
+    const [box, invoice, police] = await Promise.all([files.put(data.boxPhoto), files.put(data.invoicePhoto), files.put(data.policePhoto)]);
+    const row = await run(client().from('reports').insert({
+      type: data.type === 'lost' ? 'lost' : 'stolen', brand: data.brand, model: data.model, color: data.color,
+      imei1: data.imei1, imei2: data.imei2 || null, serial: data.serial || null,
+      incident_date: data.incidentDate || null, governorate: data.governorate || null, place: data.place || null,
+      description: data.description || null, police_number: data.policeNumber || null,
+      box_photo: box, invoice_photo: invoice, police_photo: police, contact: data.contact || {},
+    }).select('*').single());
+    return mapReport(row);
   },
+  /** Full report for its owner / admins, otherwise the public (sanitised) view */
   async getReport(id) {
-    const u = currentUserSync();
-    const r = store.get('reports', id);
-    if (!r) return null;
-    if (u && (u.role === 'admin' || u.id === r.ownerId)) return r; // full view
-    return publicReportView(r);
+    if (await sessionUserId()) {
+      const row = await run(client().from('reports').select('*, history:report_history(*)').eq('id', id).maybeSingle());
+      if (row) return mapReport(row);
+    }
+    const rows = await rpc('get_report_public', { p_id: id });
+    return rows?.[0] ? mapPublic(rows[0]) : null;
   },
   async listMyReports() {
-    const u = requireUser(['owner']);
-    return store.all('reports').filter((r) => r.ownerId === u.id).sort((a, b) => b.createdAt - a.createdAt);
+    const userId = await sessionUserId();
+    return (await run(client().from('reports').select('*').eq('owner_id', userId).order('created_at', { ascending: false }))).map(mapReport);
   },
   async listAllReports() {
-    requireUser(['admin']);
-    return store.all('reports').sort((a, b) => b.createdAt - a.createdAt);
+    return (await run(client().from('reports').select('*, owner:profiles!reports_owner_id_fkey(name, phone)').order('created_at', { ascending: false }).limit(500))).map(mapReport);
   },
-  /** Public search by IMEI or serial. Returns sanitised views only. */
   async searchReports(query, { asTechnician = false } = {}) {
-    const q = normalizeId(query);
-    if (q.length < 5) return [];
-    const res = store.all('reports').filter((r) => [r.imei1, r.imei2, r.serial].filter(Boolean).includes(q))
-      .sort((a, b) => Number(ACTIVE_STATUSES.includes(b.status)) - Number(ACTIVE_STATUSES.includes(a.status)) || b.createdAt - a.createdAt);
-    if (asTechnician) {
-      const t = requireApprovedTech();
-      audit('فحص IMEI/Serial بواسطة فني', `${q} → ${res.some((r) => ACTIVE_STATUSES.includes(r.status)) ? 'مبلغ عنه' : 'غير مبلغ عنه'}`, t);
-    }
-    const me = currentUserSync();
-    return res.map((r) => ({ ...publicReportView(r), isMine: !!me && me.id === r.ownerId }));
+    const rows = await rpc(asTechnician ? 'technician_check' : 'search_reports', { q: String(query || '') });
+    return (rows || []).map(mapPublic);
   },
-  async setReportStatus(id, status, note = '') {
-    const u = requireUser(['owner', 'admin']);
-    const r = store.get('reports', id);
-    if (!r) throw new Error('البلاغ غير موجود');
-    if (u.role === 'owner') {
-      if (r.ownerId !== u.id) throw new Error('ليست لديك صلاحية');
-      if (!['found', 'stolen', 'lost'].includes(status)) throw new Error('لا يمكن للمالك تعيين هذه الحالة');
-    }
-    const upd = store.update('reports', id, (x) => { x.status = status; x.updatedAt = now(); pushHistory(x, status, u, note); return x; });
-    audit('تغيير حالة بلاغ', `${reportLabel(r)}: ${r.status} → ${status}${note ? ' — ' + note : ''}`, u, { reportId: id });
-    return upd;
-  },
+  async setReportStatus(id, status, note = '') { await rpc('set_report_status', { p_report: id, p_status: status, p_note: note || '' }); },
   async updateReportContact(id, contact) {
-    const u = requireUser(['owner']);
-    const r = store.get('reports', id);
-    if (!r || r.ownerId !== u.id) throw new Error('ليست لديك صلاحية');
-    audit('تعديل خصوصية بيانات التواصل', reportLabel(r), u, { reportId: id });
-    return store.update('reports', id, { contact, updatedAt: now() });
+    await run(client().from('reports').update({ contact }).eq('id', id));
   },
 
   /* ---------- messaging ---------- */
   async sendMessageToOwner(reportId, text) {
-    const u = requireUser(['owner', 'technician', 'guest', 'admin']);
-    const r = store.get('reports', reportId);
-    if (!r) throw new Error('البلاغ غير موجود');
-    if (r.ownerId === u.id) throw new Error('هذا بلاغك أنت');
-    if (u.role === 'technician' && u.tech?.status !== 'approved') throw new Error('حساب الفني غير مفعّل بعد');
-    const conv = ensureConversation(r, u);
-    addMessage(conv, u, text);
-    audit('رسالة إلى مالك بلاغ', reportLabel(r), u, { reportId });
-    return conv;
+    if (await isGuestMode()) {
+      const g = guestIdentity();
+      const res = await rpc('guest_message_owner', { p_report: reportId, p_name: g.name, p_phone: g.phone, p_body: text });
+      const list = guestConvs();
+      list.unshift({ id: res.conversation_id, token: res.token, reportId, createdAt: Date.now() });
+      localStorage.setItem(GUEST_CONVS_KEY, JSON.stringify(list.slice(0, 50)));
+      return { id: res.conversation_id };
+    }
+    return { id: await rpc('message_owner', { p_report: reportId, p_body: text }) };
   },
-  async reply(conversationId, text, kind = 'text', data = null) {
-    const u = requireUser();
-    const conv = store.get('conversations', conversationId);
-    if (!conv || !conv.participants.includes(u.id)) throw new Error('المحادثة غير موجودة');
-    return addMessage(conv, u, text, kind, data);
+  async reply(conversationId, text) {
+    if (await isGuestMode()) {
+      return mapMessage(await rpc('guest_send_message', { p_conv: conversationId, p_token: guestToken(conversationId) || '', p_body: text }));
+    }
+    return mapMessage(await rpc('send_message', { p_conv: conversationId, p_body: text }));
   },
   async listConversations() {
-    const u = requireUser();
-    const msgs = store.all('messages');
-    return store.all('conversations').filter((c) => c.participants.includes(u.id))
-      .map((c) => {
-        const otherId = c.participants.find((p) => p !== u.id);
-        const other = store.get('users', otherId);
-        const report = store.get('reports', c.reportId);
-        const unread = msgs.filter((m) => m.conversationId === c.id && !m.readBy.includes(u.id)).length;
-        return { ...c, other: publicUser(other), report: report ? publicReportView(report) : null, unread };
-      })
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+    if (await isGuestMode()) {
+      const out = [];
+      for (const c of guestConvs()) {
+        try {
+          const j = await rpc('guest_get_conversation', { p_conv: c.id, p_token: c.token, p_mark: false });
+          out.push({ id: c.id, other: { name: j.other_name, role: 'owner' }, report: j.report, lastText: j.last_text, updatedAt: ts(j.updated_at), unread: j.unread || 0 });
+        } catch { /* expired / deleted */ }
+      }
+      return out.sort((a, b) => b.updatedAt - a.updatedAt);
+    }
+    return (await rpc('list_my_conversations')).map((c) => ({
+      id: c.id, reportId: c.report_id, updatedAt: ts(c.updated_at), lastText: c.last_text, unread: c.unread, iAmOwner: c.i_am_owner,
+      other: { name: c.other_name || 'زائر', role: c.other_role }, report: { brand: c.report_brand, model: c.report_model, status: c.report_status },
+    }));
   },
   async getConversation(id) {
-    const u = requireUser();
-    const c = store.get('conversations', id);
-    if (!c || !c.participants.includes(u.id)) return null;
-    // mark as read
-    const all = store.all('messages');
-    all.forEach((m) => { if (m.conversationId === id && !m.readBy.includes(u.id)) m.readBy.push(u.id); });
-    store.save('messages', all);
-    const other = store.get('users', c.participants.find((p) => p !== u.id));
-    const report = store.get('reports', c.reportId);
-    return {
-      ...c, other: publicUser(other), report: report ? publicReportView(report) : null,
-      messages: all.filter((m) => m.conversationId === id).sort((a, b) => a.createdAt - b.createdAt),
-    };
+    if (await isGuestMode()) {
+      const token = guestToken(id);
+      if (!token) return null;
+      const j = await rpc('guest_get_conversation', { p_conv: id, p_token: token, p_mark: true });
+      return j ? mapConversation(j) : null;
+    }
+    const j = await rpc('get_conversation', { p_conv: id });
+    return j ? mapConversation(j) : null;
   },
   async unreadCount() {
-    const u = currentUserSync();
-    if (!u) return 0;
-    const convIds = new Set(store.all('conversations').filter((c) => c.participants.includes(u.id)).map((c) => c.id));
-    return store.all('messages').filter((m) => convIds.has(m.conversationId) && !m.readBy.includes(u.id)).length;
+    if (!isConfigured()) return 0;
+    try {
+      if (await sessionUserId()) return await rpc('unread_count');
+      const list = guestConvs();
+      if (!guestIdentity() || !list.length) return 0;
+      return await rpc('guest_unread', { p_convs: list.map((c) => ({ id: c.id, token: c.token })) });
+    } catch { return 0; }
   },
-  /** Owner chooses to reveal selected contact details inside a conversation */
   async shareContact(conversationId, fields) {
-    const u = requireUser(['owner']);
-    const conv = store.get('conversations', conversationId);
-    if (!conv || !conv.participants.includes(u.id)) throw new Error('المحادثة غير موجودة');
-    const r = store.get('reports', conv.reportId);
-    const c = r?.contact || {};
-    const shared = {};
-    if (fields.phone && c.phone?.value) shared.phone = c.phone.value;
-    if (fields.email && c.email?.value) shared.email = c.email.value;
-    if (fields.socials) shared.socials = (c.socials || []).map((s) => s.value).filter(Boolean);
-    if (!Object.keys(shared).length) throw new Error('لا توجد بيانات مختارة للمشاركة');
-    audit('مشاركة بيانات التواصل في محادثة', Object.keys(shared).join(', '), u, { reportId: r?.id });
-    return addMessage(conv, u, 'شارك المالك بيانات التواصل معك', 'contact', shared);
+    return mapMessage(await rpc('share_contact', { p_conv: conversationId, p_phone: !!fields.phone, p_email: !!fields.email, p_socials: !!fields.socials }));
   },
 
   /* ---------- technicians ---------- */
   async listTechnicians(status = null) {
-    requireUser(['admin']);
-    return store.all('users').filter((u) => u.role === 'technician' && (!status || u.tech?.status === status))
-      .map(publicUser).sort((a, b) => (b.tech?.submittedAt || 0) - (a.tech?.submittedAt || 0));
+    let qb = client().from('profiles').select('*').eq('role', 'technician');
+    if (status) qb = qb.eq('tech_status', status);
+    return (await run(qb.order('tech_submitted_at', { ascending: false, nullsFirst: false }))).map(mapUser);
   },
-  async reviewTechnician(userId, decision, note = '') {
-    const admin = requireUser(['admin']);
-    const map = { approve: 'approved', reject: 'rejected', suspend: 'suspended', reactivate: 'approved' };
-    const status = map[decision];
-    if (!status) throw new Error('إجراء غير معروف');
-    const t = store.update('users', userId, (u) => {
-      u.tech.status = status; u.tech.reviewedBy = admin.id; u.tech.reviewedByName = admin.name;
-      u.tech.reviewedAt = now(); u.tech.reviewNote = note; return u;
-    });
-    const labels = { approve: 'اعتماد فني', reject: 'رفض فني', suspend: 'إيقاف فني', reactivate: 'إعادة تفعيل فني' };
-    audit(labels[decision], `${t.name} — ${t.tech.shopName}${note ? ' — ' + note : ''}`, admin, { targetUserId: userId });
-    return publicUser(t);
-  },
+  async reviewTechnician(userId, decision, note = '') { await rpc('admin_review_technician', { p_user: userId, p_decision: decision, p_note: note || '' }); },
 
   /* ---------- handovers ---------- */
   async createHandover(reportId, { checklist, deviceImei, ownerIdPhoto, selfie, notes }) {
-    const t = requireApprovedTech();
-    const r = store.get('reports', reportId);
-    if (!r) throw new Error('البلاغ غير موجود');
-    if (!ACTIVE_STATUSES.includes(r.status)) throw new Error('هذا البلاغ ليس نشطاً');
-    if (!checklist?.box || !checklist?.imeiMatch || !checklist?.unlocked) throw new Error('يجب استيفاء كل بنود قائمة التحقق');
-    const d = normalizeId(deviceImei);
-    if (![r.imei1, r.imei2].filter(Boolean).includes(d)) throw new Error('رقم IMEI الظاهر على الجهاز لا يطابق البلاغ — لا تسلّم الهاتف');
-    if (!ownerIdPhoto || !selfie) throw new Error('صورة بطاقة المالك وصورة التسليم مطلوبتان');
-    const h = store.insert('handovers', {
-      id: uid('hnd'), reportId, technicianId: t.id, technicianName: t.name, shopName: t.tech.shopName,
-      ownerId: r.ownerId, checklist, deviceImei: d,
-      ownerIdPhoto: await files.put(ownerIdPhoto), selfie: await files.put(selfie),
-      notes: notes || '', status: 'pending_owner', createdAt: now(),
-    });
-    const conv = ensureConversation(r, t);
-    addMessage(conv, null, `سجّل الفني ${t.name} (${t.tech.shopName}) تسليم هاتفك ${reportLabel(r)}. من فضلك افتح «بلاغاتي» وأكّد الاستلام، أو أبلغ عن مشكلة إذا تعرضت لأي ضغط.`, 'system');
-    audit('تسجيل تسليم هاتف', `${reportLabel(r)} — بانتظار تأكيد المالك`, t, { reportId, handoverId: h.id });
-    return h;
+    await rpc('handover_precheck', { p_report: reportId, p_device_imei: deviceImei }); // validate before uploading photos
+    const [a, b] = await Promise.all([files.put(ownerIdPhoto, 'handover-photos'), files.put(selfie, 'handover-photos')]);
+    const id = await rpc('create_handover', { p_report: reportId, p_checklist: checklist, p_device_imei: deviceImei, p_owner_id_photo: a, p_selfie: b, p_notes: notes || '' });
+    return { id };
   },
   async listMyHandovers() {
-    const u = requireUser(['technician', 'owner']);
-    const key = u.role === 'technician' ? 'technicianId' : 'ownerId';
-    return store.all('handovers').filter((h) => h[key] === u.id).sort((a, b) => b.createdAt - a.createdAt)
-      .map((h) => ({ ...h, report: store.get('reports', h.reportId) }));
+    const u = await this.currentUser();
+    const col = u?.role === 'technician' ? 'technician_id' : 'owner_id';
+    return (await run(client().from('handovers').select('*').eq(col, u.id).order('created_at', { ascending: false }))).map(mapHandover);
   },
   async listHandoversForReport(reportId) {
-    const u = requireUser(['owner', 'admin']);
-    return store.all('handovers').filter((h) => h.reportId === reportId && (u.role === 'admin' || h.ownerId === u.id));
+    return (await run(client().from('handovers').select('*').eq('report_id', reportId).order('created_at', { ascending: false }))).map(mapHandover);
   },
-  async confirmHandover(handoverId) {
-    const u = requireUser(['owner']);
-    const h = store.get('handovers', handoverId);
-    if (!h || h.ownerId !== u.id) throw new Error('غير مسموح');
-    if (h.status !== 'pending_owner') throw new Error('تمت معالجة هذا التسليم بالفعل');
-    store.update('handovers', h.id, { status: 'confirmed', confirmedAt: now() });
-    store.update('reports', h.reportId, (r) => { r.status = 'delivered'; r.updatedAt = now(); pushHistory(r, 'delivered', u, `أكد المالك الاستلام من ${h.shopName}`); return r; });
-    audit('أكد المالك استلام هاتفه', h.shopName, u, { reportId: h.reportId, handoverId });
-    return true;
-  },
+  async confirmHandover(handoverId) { await rpc('confirm_handover', { p_handover: handoverId }); return true; },
 
   /* ---------- disputes ---------- */
-  async createDispute(data) {
-    const u = requireUser(['owner']);
-    const r = store.get('reports', data.reportId);
-    if (!r || r.ownerId !== u.id) throw new Error('غير مسموح');
-    let technicianId = null, handoverId = data.handoverId || null;
-    if (handoverId) {
-      const h = store.get('handovers', handoverId);
-      if (h && h.ownerId === u.id) {
-        technicianId = h.technicianId;
-        store.update('handovers', h.id, { status: 'disputed', disputedAt: now() });
-      } else handoverId = null;
-    }
-    const d = store.insert('disputes', {
-      id: uid('dsp'), reportId: r.id, ownerId: u.id, ownerName: u.name, handoverId, technicianId,
-      coercion: !!data.coercion, description: data.description, policeNumber: data.policeNumber || '',
-      evidenceFileName: data.evidenceFileName || '', evidenceLink: data.evidenceLink || '', witnesses: data.witnesses || '',
-      status: 'open', notes: [], createdAt: now(), updatedAt: now(),
-    });
-    store.update('reports', r.id, (x) => { x.statusBeforeDispute = x.status === 'dispute' ? x.statusBeforeDispute : x.status; x.status = 'dispute'; x.updatedAt = now(); pushHistory(x, 'dispute', u, data.coercion ? 'بلاغ إكراه/تهديد' : 'فتح نزاع'); return x; });
-    audit(data.coercion ? 'نزاع: إبلاغ عن إكراه/تهديد' : 'فتح نزاع', `${reportLabel(r)}${data.policeNumber ? ' — محضر ' + data.policeNumber : ''}`, u, { reportId: r.id, disputeId: d.id });
-    return d;
+  async createDispute(d) {
+    return { id: await rpc('create_dispute', {
+      p_report: d.reportId, p_handover: d.handoverId || null, p_coercion: !!d.coercion, p_description: d.description,
+      p_police_number: d.policeNumber || '', p_evidence_file_name: d.evidenceFileName || '', p_evidence_link: d.evidenceLink || '', p_witnesses: d.witnesses || '',
+    }) };
   },
   async listDisputes() {
-    const u = requireUser(['owner', 'admin']);
-    return store.all('disputes').filter((d) => u.role === 'admin' || d.ownerId === u.id)
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .map((d) => ({ ...d, report: store.get('reports', d.reportId), technician: publicUser(store.get('users', d.technicianId)) }));
+    const rows = await run(client().from('disputes')
+      .select('*, notes:dispute_notes(*), report:reports(brand, model, imei1), technician:profiles!disputes_technician_id_fkey(id, name, tech_shop_name, tech_status)')
+      .order('created_at', { ascending: false }));
+    return rows.map(mapDispute);
   },
-  async addDisputeNote(disputeId, text) {
-    const u = requireUser(['admin']);
-    const d = store.update('disputes', disputeId, (x) => { x.notes.push({ at: now(), by: u.id, byName: u.name, text }); x.updatedAt = now(); return x; });
-    audit('ملاحظة على نزاع', text.slice(0, 80), u, { disputeId });
-    return d;
-  },
-  async setDisputeStatus(disputeId, status) {
-    const u = requireUser(['admin']);
-    const d = store.update('disputes', disputeId, { status, updatedAt: now() });
-    audit('تغيير حالة نزاع', status, u, { disputeId });
-    return d;
-  },
+  async addDisputeNote(disputeId, text) { await rpc('admin_add_dispute_note', { p_dispute: disputeId, p_body: text }); },
+  async setDisputeStatus(disputeId, status) { await rpc('admin_set_dispute_status', { p_dispute: disputeId, p_status: status }); },
 
-  /* ---------- audit ---------- */
+  /* ---------- admin ---------- */
   async listAudit(limit = 300) {
-    requireUser(['admin']);
-    return store.all('audit').sort((a, b) => b.at - a.at).slice(0, limit);
+    return (await run(client().from('audit_log').select('*').order('at', { ascending: false }).limit(limit)))
+      .map((l) => ({ id: l.id, at: ts(l.at), actorName: l.actor_name, actorRole: l.actor_role, action: l.action, details: l.details }));
   },
-  async stats() {
-    requireUser(['admin']);
-    const reps = store.all('reports');
-    return {
-      reports: reps.length, active: reps.filter((r) => ACTIVE_STATUSES.includes(r.status)).length,
-      delivered: reps.filter((r) => r.status === 'delivered').length,
-      pendingTechs: store.all('users').filter((u) => u.role === 'technician' && u.tech?.status === 'pending').length,
-      openDisputes: store.all('disputes').filter((d) => ['open', 'reviewing'].includes(d.status)).length,
-    };
-  },
+  async stats() { return rpc('admin_stats'); },
 };
 
 export default db;

@@ -25,8 +25,39 @@ function statusScreen(user) {
     <div class="muted small">${esc(t.shopName)} — ${esc(t.governorate)}</div></section>`;
 }
 
+function docsForm(el, user) {
+  const state = {};
+  const rejected = user.tech.status === 'rejected';
+  el.insertAdjacentHTML('beforeend', `<section class="card" id="docs-card"><h3>${rejected ? '🔁 أعد رفع مستندات التوثيق' : '📎 أكمل مستندات التوثيق'}</h3>
+    <form id="docs-form" class="form" novalidate>
+      ${photoField({ name: 'idPhoto', label: 'صورة بطاقة الرقم القومي', required: true, mode: 'capture', facing: 'environment' })}
+      ${photoField({ name: 'deviceShot', label: 'لقطة شاشة من هاتفك تُظهر IMEI / الرقم التسلسلي', required: true, mode: 'upload' })}
+      ${photoField({ name: 'selfie', label: 'سيلفي مباشر', required: true, mode: 'live', facing: 'user' })}
+      <button class="btn btn-primary btn-block" type="submit">إرسال المستندات</button></form></section>`);
+  const f = $('#docs-form', el);
+  bindPhotoFields(f, state);
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!checkPhotoFields(f, state)) return toast('الصور الثلاث مطلوبة', 'error');
+    const btn = f.querySelector('button[type=submit]'); btn.disabled = true;
+    try {
+      await db.submitTechnicianDocuments({ idPhoto: state.idPhoto, deviceShot: state.deviceShot, selfie: state.selfie, selfieMethod: state.selfieMethod });
+      toast('تم إرسال المستندات — الحساب قيد المراجعة', 'ok');
+      window.dispatchEvent(new Event('auth-changed'));
+      go('#/tech');
+    } catch (err) { toast(err.message, 'error'); btn.disabled = false; }
+  });
+}
+
 export async function techDashboardView(el, { user, query }) {
-  if (user.tech?.status !== 'approved') { el.innerHTML = statusScreen(user); return; }
+  if (user.tech?.status !== 'approved') {
+    user = (await db.currentUser({ fresh: true })) || user; // status may have changed on another device
+  }
+  if (user.tech?.status !== 'approved') {
+    el.innerHTML = statusScreen(user);
+    if ((user.tech?.status === 'pending' && !user.tech.idPhoto) || user.tech?.status === 'rejected') docsForm(el, user);
+    return;
+  }
   const handovers = await db.listMyHandovers();
   const q0 = normalizeId(query.get('q') || '');
   el.innerHTML = `

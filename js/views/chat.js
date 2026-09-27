@@ -20,7 +20,7 @@ export async function chatView(el, { params, user }) {
   const c = await db.getConversation(params[0]);
   if (!c) { el.innerHTML = emptyState('🔒', 'المحادثة غير موجودة'); return; }
   window.dispatchEvent(new Event('badge-refresh'));
-  const iAmOwner = c.report && c.report.ownerId === user.id;
+  const iAmOwner = c.iAmOwner;
   const canHandover = user.role === 'technician' && user.tech?.status === 'approved' && c.report?.active && c.report.status !== 'dispute';
   el.innerHTML = `<div class="chat">
     <div class="chat-head">
@@ -36,6 +36,19 @@ export async function chatView(el, { params, user }) {
   </div>`;
   const box = $('#messages', el);
   box.scrollTop = box.scrollHeight;
+  // poll for new messages from the other device (simple & cheap; realtime can replace this later)
+  const shown = new Set(c.messages.map((m) => m.id));
+  const route = location.hash;
+  const timer = setInterval(async () => {
+    if (location.hash !== route || !document.body.contains(box)) { clearInterval(timer); return; }
+    if (document.hidden) return;
+    try {
+      const fresh = await db.getConversation(c.id);
+      const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+      (fresh?.messages || []).filter((m) => !shown.has(m.id)).forEach((m) => { shown.add(m.id); box.insertAdjacentHTML('beforeend', msgHTML(m, user)); });
+      if (nearBottom) box.scrollTop = box.scrollHeight;
+    } catch { /* offline */ }
+  }, 6000);
   const form = $('#chat-form', el);
   form.text.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } });
   form.addEventListener('submit', async (e) => {
@@ -44,6 +57,7 @@ export async function chatView(el, { params, user }) {
     if (!text) return;
     try {
       const m = await db.reply(c.id, text);
+      shown.add(m.id);
       box.insertAdjacentHTML('beforeend', msgHTML(m, user));
       form.text.value = ''; box.scrollTop = box.scrollHeight;
     } catch (err) { toast(err.message, 'error'); }
@@ -64,7 +78,7 @@ export async function chatView(el, { params, user }) {
       const f = e.target;
       try {
         const m = await db.shareContact(c.id, { phone: f.phone.checked, email: f.email.checked, socials: f.socials.checked });
-        mm.close(); box.insertAdjacentHTML('beforeend', msgHTML(m, user)); box.scrollTop = box.scrollHeight;
+        mm.close(); shown.add(m.id); box.insertAdjacentHTML('beforeend', msgHTML(m, user)); box.scrollTop = box.scrollHeight;
       } catch (err) { toast(err.message, 'error'); }
     });
   });

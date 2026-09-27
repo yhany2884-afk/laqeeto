@@ -35,13 +35,14 @@
       </div>
     </div>
   </header>
-  <div class="demo-banner" role="note">🧪 نسخة تجريبية — البيانات محفوظة على هذا الجهاز فقط <button id="banner-reset" class="link-btn">إعادة ضبط</button></div>
+  <div class="demo-banner" id="status-banner" role="note" hidden></div>
   <main id="view" class="container" tabindex="-1">
     <noscript><p>يحتاج هذا التطبيق إلى تفعيل JavaScript.</p></noscript>
     <div class="loading">جارٍ التحميل…</div>
   </main>
   <nav class="bottom-nav" id="bottom-nav" aria-label="التنقل"></nav>
   <div id="toasts" class="toasts" aria-live="polite"></div>
+  <script src="js/vendor/supabase.js"></script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

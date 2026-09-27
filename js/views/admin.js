@@ -85,10 +85,9 @@ async function reportsTab(body, refresh, query) {
       <input name="q" dir="ltr" placeholder="IMEI / Serial" value="${esc(q)}"><button class="btn btn-outline">تصفية</button></form>
     <div class="table-wrap"><table class="table"><thead><tr><th>الجهاز</th><th>IMEI</th><th>المالك</th><th>التاريخ</th><th>الحالة</th><th>تغيير</th></tr></thead><tbody>
     ${list.map((r) => `<tr><td><a href="#/report/${r.id}">${esc(r.brand)} ${esc(r.model)}</a><div class="muted small">${esc(r.color)}</div></td>
-      <td dir="ltr" class="mono small">${esc(r.imei1)}</td><td class="small" data-owner="${r.ownerId}">…</td><td class="small">${fmtDate(r.createdAt)}</td><td>${statusBadge(r.status)}</td>
+      <td dir="ltr" class="mono small">${esc(r.imei1)}</td><td class="small">${esc(r.ownerName || '—')}</td><td class="small">${fmtDate(r.createdAt)}</td><td>${statusBadge(r.status)}</td>
       <td><div class="inline-form"><select data-status-for="${r.id}">${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select><button class="btn btn-sm btn-primary" data-save-status="${r.id}">حفظ</button></div></td></tr>`).join('') || '<tr><td colspan="6">لا توجد نتائج</td></tr>'}
     </tbody></table></div>`;
-  $$('[data-owner]', body).forEach(async (td) => { const u = await db.getUser(td.dataset.owner); td.textContent = u ? `${u.name}` : '—'; });
   $('#rep-filter', body).addEventListener('submit', (e) => { e.preventDefault(); const f = e.target; go(`#/admin?tab=reports&status=${f.status.value}&q=${encodeURIComponent(f.q.value)}`); });
   $$('[data-save-status]', body).forEach((b) => b.addEventListener('click', async () => {
     const id = b.dataset.saveStatus; const st = $(`[data-status-for="${id}"]`, body).value;

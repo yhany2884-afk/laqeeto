@@ -1,7 +1,7 @@
 // نقطة البداية — app shell, router, navigation
 import db from './db.js';
 import { esc, ROLE_LABEL } from './utils.js';
-import { $, go, toast, confirmDialog } from './ui.js';
+import { $, go, toast } from './ui.js';
 import { initPWA, onInstallChange, shouldShowInstall, promptInstall } from './pwa.js';
 import { homeView, searchView, aboutView, notFoundView } from './views/public.js';
 import { loginView, signupView, techSignupView, homeFor } from './views/auth.js';
@@ -71,13 +71,20 @@ async function renderChrome(user) {
 let renderSeq = 0;
 async function router() {
   const seq = ++renderSeq;
+  document.body.dataset.busy = '1';
   const { path, query } = parseHash();
-  const user = await db.currentUser();
-  const el = $('#view');
+  let user = null;
+  try { user = await db.currentUser(); } catch (e) { console.warn(e); }
+  // Fresh container per render: a slow view from a previous route writes into a detached node
+  // instead of clobbering the current page.
+  const el = document.createElement('div');
   let match = null, params = [];
   for (const r of routes) { const m = path.match(r[0]); if (m) { match = r; params = m.slice(1); break; } }
   await renderChrome(user);
-  if (!match) { notFoundView(el); return; }
+  if (seq !== renderSeq) return;
+  const host = $('#view');
+  host.replaceChildren(el);
+  if (!match) { notFoundView(el); delete document.body.dataset.busy; return; }
   const [, view, roles, title] = match;
   if (roles && !user) { go('#/login?next=' + encodeURIComponent(location.hash)); toast('سجّل الدخول للمتابعة'); return; }
   if (roles && !roles.includes(user.role)) {
@@ -86,33 +93,36 @@ async function router() {
     return;
   }
   document.title = `${title} — لقيته`;
-  el.classList.remove('fade-in'); void el.offsetWidth; el.classList.add('fade-in');
+  host.classList.remove('fade-in'); void host.offsetWidth; host.classList.add('fade-in');
   try {
     await view(el, { params, query, user });
   } catch (err) {
+    if (seq !== renderSeq) return;
     console.error(err);
-    if (seq === renderSeq) el.innerHTML = `<div class="alert alert-danger">حدث خطأ: ${esc(err.message)}</div>`;
+    el.innerHTML = `<div class="alert alert-danger">حدث خطأ: ${esc(err.message)}</div>`;
   }
-  if (seq === renderSeq) window.scrollTo(0, 0);
+  if (seq === renderSeq) { window.scrollTo(0, 0); delete document.body.dataset.busy; }
 }
 
-window.resetDemo = async () => {
-  if (!(await confirmDialog('سيتم حذف كل البيانات على هذا الجهاز وإعادة البيانات التجريبية. متابعة؟', { okLabel: 'إعادة الضبط', danger: true }))) return;
-  await db.resetDemo();
-  toast('تمت إعادة ضبط البيانات التجريبية ✅', 'ok');
-  go('#/');
-};
+function updateBanner() {
+  const b = $('#status-banner');
+  if (!db.isConfigured()) { b.hidden = false; b.textContent = '⚙️ لم يتم ربط التطبيق بقاعدة البيانات بعد — راجع js/config.js أو شغّل supabase/setup.py'; return; }
+  if (!navigator.onLine) { b.hidden = false; b.textContent = '📴 أنت غير متصل بالإنترنت — يمكنك تصفح التطبيق، لكن الفحص والإبلاغ والرسائل تحتاج اتصالاً.'; return; }
+  b.hidden = true;
+}
+window.addEventListener('online', updateBanner);
+window.addEventListener('offline', updateBanner);
 
 window.addEventListener('hashchange', router);
-window.addEventListener('auth-changed', async () => renderChrome(await db.currentUser()));
-window.addEventListener('badge-refresh', async () => renderChrome(await db.currentUser()));
-window.addEventListener('storage', (e) => { if (e.key && e.key.startsWith('laqeeto.')) router(); }); // sync between tabs
+const chrome = async () => { try { renderChrome(await db.currentUser()); } catch { /* offline */ } };
+window.addEventListener('auth-changed', chrome);
+window.addEventListener('badge-refresh', chrome);
 onInstallChange(() => { $('#install-btn').hidden = !shouldShowInstall(); });
 
 (async function start() {
   $('#install-btn').addEventListener('click', promptInstall);
-  $('#banner-reset').addEventListener('click', () => window.resetDemo());
-  try { await db.init(); } catch (e) { console.error(e); toast('تعذر تهيئة التخزين المحلي: ' + e.message, 'error', 8000); }
+  updateBanner();
+  try { await db.init(); } catch (e) { console.error(e); toast('تعذر الاتصال بقاعدة البيانات: ' + e.message, 'error', 8000); }
   await router();
   document.documentElement.classList.add('ready');
 })();

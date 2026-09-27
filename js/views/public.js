@@ -148,7 +148,7 @@ export async function aboutView(el) {
   el.innerHTML = `
   <h2 class="page-title">عن «لقيته» وكيف يعمل</h2>
   <section class="card"><p><b>لقيته</b> (Stolen Phone Registry) سجل مجتمعي للهواتف المسروقة والمفقودة في مصر. يسجّل المالك رقم IMEI لهاتفه، فإذا حاول أحد بيعه أو إصلاحه لدى فني صيانة، أو وجده شخص أمين، يمكنه فحص الرقم والتواصل مع المالك بأمان داخل التطبيق.</p>
-  <div class="alert alert-info alert-compact">هذه <b>نسخة تجريبية</b>: كل البيانات محفوظة على هذا الجهاز فقط ولا تُرسل لأي خادم.</div></section>
+  <div class="alert alert-info alert-compact">هذه <b>نسخة تجريبية (Beta)</b>: البيانات محفوظة في قاعدة بيانات مشتركة على الإنترنت (Supabase) وتعمل من أي جهاز، ومحمية بصلاحيات صارمة.</div></section>
 
   <section class="how">
     <div class="how-step"><div class="how-num">1</div><div><h3>👤 مالك الهاتف</h3><ol>
@@ -180,12 +180,13 @@ export async function aboutView(el) {
   <section class="card"><h3>⬇️ تثبيت التطبيق</h3>${installInstructionsHTML()}
     <button class="btn btn-primary" id="about-install">تثبيت التطبيق</button></section>
 
-  <section class="card"><h3>🧪 البيانات التجريبية</h3>
-    <p>يمكنك حذف كل ما أضفته وإعادة البيانات التجريبية الأصلية (الحسابات والبلاغات).</p>
-    <button class="btn btn-danger" id="reset-demo" data-testid="reset-demo">إعادة ضبط البيانات التجريبية</button></section>
-  <p class="muted center small">لقيته — نموذج أولي v1.0 · يعمل بدون إنترنت</p>`;
+  <section class="card" id="backend-info"><h3>🗄️ أين تُحفظ البيانات؟</h3><ul>
+    <li>في قاعدة بيانات Postgres على Supabase (خوادم الاتحاد الأوروبي — فرانكفورت).</li>
+    <li>الزائر لا يستطيع قراءة الجداول مباشرة؛ الفحص العام يرجع فقط الماركة والموديل واللون والحالة.</li>
+    <li>الصور (العلب، البطاقات، السيلفي) في مخازن خاصة وتُعرض بروابط مؤقتة لأصحابها وفريق الدعم فقط.</li>
+    <li>الحسابات التجريبية في صفحة الدخول مشتركة بين كل من يجرب التطبيق — لا تضع بيانات حقيقية.</li></ul></section>
+  <p class="muted center small">لقيته — نسخة تجريبية v2.0 · واجهة التطبيق تعمل بدون إنترنت</p>`;
   $('#about-install', el).addEventListener('click', promptInstall);
-  $('#reset-demo', el).addEventListener('click', () => window.resetDemo());
 }
 
 export function notFoundView(el) {
