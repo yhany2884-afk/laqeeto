@@ -28,11 +28,6 @@ export async function homeView(el, { user }) {
     <h1>هل وجدت هاتفاً؟ أو ستشتري هاتفاً مستعملاً؟</h1>
     <p>افحص رقم <b>IMEI</b> أو الرقم التسلسلي في ثوانٍ لتعرف إن كان مبلغاً عنه كمسروق أو مفقود — مجاناً وبدون تسجيل.</p>
     ${searchBox()}
-    <div class="demo-chips">جرّب أرقاماً تجريبية:
-      <button class="chip" data-q="356938035643809" dir="ltr">356938035643809</button>
-      <button class="chip" data-q="868910041234577" dir="ltr">868910041234577</button>
-      <button class="chip" data-q="490154203237518" dir="ltr">490154203237518</button>
-    </div>
   </section>
   ${imeiTip}
   <section class="grid-3 actions-grid">

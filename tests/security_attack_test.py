@@ -10,10 +10,12 @@ Acts as: anonymous visitor, a fresh owner (attacker), a second owner (victim), a
 
 The credentials file (never commit it) must contain:
   {"admin": {"email": "...", "password": "..."}}
-Creates throwaway accounts sec-test-<ts>-*@example.com (clean them up afterwards with SQL).
+Creates throwaway accounts lqtest-<random>-*@example.com. If LAQEETO_DB_PASSWORD_FILE is set, everything the run
+created (auth users, rows, storage files, rate-limit counters, audit rows) is purged on exit via tests/cleanup.py;
+otherwise run  python3 tests/cleanup.py 'lqtest-<random>-%@example.com' --audit  yourself.
 Standard library only. Prints no secrets.
 """
-import base64, json, os, re, struct, sys, time, urllib.error, urllib.request, uuid, zlib
+import atexit, json, os, re, secrets, struct, sys, time, urllib.error, urllib.request, uuid, zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 cfg = open(os.path.join(ROOT, 'js', 'config.js'), encoding='utf-8').read()
@@ -22,6 +24,16 @@ ANON = re.search(r"SUPABASE_ANON_KEY = '([^']+)'", cfg).group(1)
 CREDS = json.load(open(os.environ['LAQEETO_TEST_CREDENTIALS']))
 TS = str(int(time.time()))
 TS12 = (TS + str(uuid.uuid4().int))[:12]
+PREFIX = f'lqtest-{secrets.token_hex(4)}-'
+GPH1, GPH2 = ['010' + ''.join(str(secrets.randbelow(10)) for _ in range(8)) for _ in range(2)]
+def _purge():
+    if os.environ.get('LAQEETO_DB_PASSWORD_FILE'):
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import cleanup
+        cleanup.purge(PREFIX + '%@example.com', audit=True, extra_rate_keys=['guest:phone:' + GPH1, 'guest:phone:' + GPH2])
+    else:
+        print(f"\nNOTE: run  python3 tests/cleanup.py '{PREFIX}%@example.com' --audit  to delete this run's data")
+atexit.register(_purge)
 results = []
 
 def ok(name, cond, extra=''):
@@ -91,25 +103,20 @@ code, _ = anon.upload('report-photos', f'{uuid.uuid4()}/x.png')
 ok('anon cannot upload to storage', code in (400, 401, 403), f'HTTP {code}')
 code, j = anon.call('POST', '/storage/v1/object/list/tech-docs', {'prefix': '', 'limit': 5})
 ok('anon cannot list private bucket', code != 200 or j == [], f'HTTP {code}')
-code, j = anon.rpc('search_reports', {'q': '356938035643809'})
-ok('public search returns only public columns', code == 200 and j and set(j[0]) == {'id', 'brand', 'model', 'color', 'type', 'status', 'active', 'reported_at', 'governorate', 'public_contact', 'is_mine'}, str(code))
-ok('public search hides private contact (only public fields)', code == 200 and all('value' not in json.dumps(r['public_contact']) for r in j))
-code, j = anon.rpc('search_reports', {'q': '3569'})
-ok('public search is exact-match only (no prefix enumeration)', code == 200 and j == [])
 
 # ---------------------------------------------------------------- signup abuse
 print('\n== signup privilege escalation')
-evil = C.signup(f'sec-test-{TS}-evil@example.com', PW, {'name': 'evil', 'role': 'admin', 'tech_status': 'approved'})
+evil = C.signup(f'{PREFIX}evil@example.com', PW, {'name': 'evil', 'role': 'admin', 'tech_status': 'approved'})
 code, prof = evil.call('GET', '/rest/v1/profiles?select=role,tech_status')
 ok('signup metadata role=admin is ignored', code == 200 and prof[0]['role'] == 'owner' and prof[0]['tech_status'] is None, str(prof))
-evtech = C.signup(f'sec-test-{TS}-evtech@example.com', PW, {'name': 'evtech', 'role': 'technician', 'tech_status': 'approved'})
+evtech = C.signup(f'{PREFIX}evtech@example.com', PW, {'name': 'evtech', 'role': 'technician', 'tech_status': 'approved'})
 code, prof = evtech.call('GET', '/rest/v1/profiles?select=role,tech_status')
 ok('signup metadata tech_status=approved is ignored (pending)', code == 200 and prof[0]['tech_status'] == 'pending', str(prof))
 
 # --------------------------------------------------------------- owners
 print('\n== owner vs owner')
-victim = C.signup(f'sec-test-{TS}-victim@example.com', PW, {'name': 'الضحية فلان الفلاني', 'phone': '01011112222'})
-att = C.signup(f'sec-test-{TS}-attacker@example.com', PW, {'name': 'مهاجم', 'phone': '01033334444'})
+victim = C.signup(f'{PREFIX}victim@example.com', PW, {'name': 'الضحية فلان الفلاني', 'phone': '01011112222'})
+att = C.signup(f'{PREFIX}attacker@example.com', PW, {'name': 'مهاجم', 'phone': '01033334444'})
 vbox = f'report-photos/{victim.uid}/{uuid.uuid4()}.png'
 ok('victim uploads own box photo', victim.upload('report-photos', vbox.split('/', 1)[1])[0] == 200)
 imei_v = luhn_imei('35' + TS12)
@@ -118,6 +125,11 @@ code, rep = victim.call('POST', '/rest/v1/reports', {'type': 'stolen', 'brand': 
     headers={'Prefer': 'return=representation'})
 ok('victim creates report', code == 201, f'HTTP {code} {rep}')
 vrep = rep[0]['id']
+code, j = anon.rpc('search_reports', {'q': imei_v})
+ok('public search returns only public columns', code == 200 and j and set(j[0]) == {'id', 'brand', 'model', 'color', 'type', 'status', 'active', 'reported_at', 'governorate', 'public_contact', 'is_mine'}, str(code))
+ok('public search hides private contact (phone/email not public)', code == 200 and j and j[0]['public_contact'] == {}, str(j))
+code, j = anon.rpc('search_reports', {'q': imei_v[:6]})
+ok('public search is exact-match only (no prefix enumeration)', code == 200 and j == [])
 code, rows = att.call('GET', f'/rest/v1/reports?id=eq.{vrep}&select=*')
 ok('attacker cannot read victim report row', code == 200 and rows == [])
 code, rows = att.call('PATCH', f'/rest/v1/reports?id=eq.{vrep}', {'contact': {'phone': {'value': '0100', 'public': True}}}, headers={'Prefer': 'return=representation'})
@@ -203,7 +215,7 @@ ok('private photo not reachable via public URL', code != 200, f'HTTP {code}')
 # ------------------------------------------------------------ guest privacy
 print('\n== guest messaging privacy')
 g = C()
-code, j = g.rpc('guest_message_owner', {'p_report': vrep, 'p_name': 'ضيف اختبار', 'p_phone': '01055556666', 'p_body': 'لقيت الموبايل'})
+code, j = g.rpc('guest_message_owner', {'p_report': vrep, 'p_name': 'ضيف اختبار', 'p_phone': GPH1, 'p_body': 'لقيت الموبايل'})
 ok('guest can message an active report owner', code == 200, f'HTTP {code} {j}')
 if code == 200:
     code, conv = g.rpc('guest_get_conversation', {'p_conv': j['conversation_id'], 'p_token': j['token'], 'p_mark': True})
@@ -218,10 +230,10 @@ if code == 200:
     code, conv = g.rpc('guest_get_conversation', {'p_conv': j['conversation_id'], 'p_token': j['token'], 'p_mark': True})
     blob = json.dumps(conv, ensure_ascii=False)
     ok("owner's reply does not reveal the owner's name to the guest", 'الضحية' not in blob and 'فلان' not in blob)
-code, _ = C().call('POST', '/rest/v1/rpc/guest_message_owner', {'p_report': vrep, 'p_name': 'x', 'p_phone': '01055556666', 'p_body': 'spam'},
+code, _ = C().call('POST', '/rest/v1/rpc/guest_message_owner', {'p_report': vrep, 'p_name': 'x', 'p_phone': GPH1, 'p_body': 'spam'},
                    headers={'X-Forwarded-For': '6.6.6.6'})
 # rate-limit key must not come from a client-controlled header: 5 msgs/h per phone still applies -> test phone limit
-hits = [C().rpc('guest_message_owner', {'p_report': vrep, 'p_name': 'سبام', 'p_phone': '01077778888', 'p_body': f'spam {i}'})[0] for i in range(7)]
+hits = [C().rpc('guest_message_owner', {'p_report': vrep, 'p_name': 'سبام', 'p_phone': GPH2, 'p_body': f'spam {i}'})[0] for i in range(7)]
 ok('guest messages rate-limited per phone (5/h)', hits.count(200) <= 5 and hits[-1] != 200, str(hits))
 
 # --------------------------------------------------------- technicians
@@ -255,7 +267,7 @@ code, _ = admin.call('POST', f'/storage/v1/object/sign/{tdoc[0]}', {'expiresIn':
 ok('admin can view tech documents (signed URL)', code == 200, f'HTTP {code}')
 code, _ = admin.rpc('admin_review_technician', {'p_user': evtech.uid, 'p_decision': 'approve', 'p_note': 'security test'})
 ok('admin approves technician', code in (200, 204), f'HTTP {code}')
-evtech = C.login(f'sec-test-{TS}-evtech@example.com', PW)
+evtech = C.login(f'{PREFIX}evtech@example.com', PW)
 code, j = evtech.rpc('technician_check', {'q': imei_v})
 ok('approved tech can check IMEI', code == 200 and j and j[0]['status'] == 'stolen', f'HTTP {code}')
 code, rows = evtech.call('GET', f'/rest/v1/reports?id=eq.{vrep}&select=*')
@@ -290,7 +302,7 @@ ok('even admin cannot edit audit log', code in (401, 403), f'HTTP {code}')
 code, j = admin.call('GET', '/rest/v1/audit_log?select=action&order=id.desc&limit=50')
 ok('admin sees the audit trail of this test', code == 200 and any('اعتماد فني' == r['action'] for r in j))
 
-print('\nCREATED_PREFIX', f'sec-test-{TS}-')
+print('\nCREATED_PREFIX', f'{PREFIX}')
 n = sum(r[1] for r in results)
 print(f'\n{n}/{len(results)} checks passed')
 for name, good in results:

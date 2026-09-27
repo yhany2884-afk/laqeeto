@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-Demo data for Laqeeto on Supabase. Called by setup.py (step "seed"); can also be run alone:
-    python3 supabase/setup.py --steps seed
+OPTIONAL demo data for a Laqeeto TEST/STAGING project. It is NOT part of the default setup and must never be
+run against production. It only runs when explicitly requested:
+    LAQEETO_SEED_DEMO=yes python3 supabase/setup.py --steps seed
+and refuses the production project (see PRODUCTION_REFS) unless LAQEETO_SEED_DEMO_ALLOW_PRODUCTION=yes.
+Nothing is fixed: account e-mails are demo-<random>-<role>@example.com, IMEIs are random Luhn-valid
+numbers, passwords are random. Remove it all afterwards with tests/cleanup.py 'demo-<run>-%@example.com'.
 Creates the demo data accounts through the normal public sign-up API (so every trigger / RLS path is
 exercised), uploads placeholder images, then uses SQL only for what users must NOT be able to do
 themselves: approving the demo technician and marking one report delivered.
@@ -11,7 +15,7 @@ Each demo account gets a long random password on every run (or LAQEETO_DEMO_PASS
 environment, e.g. LAQEETO_DEMO_PASSWORD_OWNER). Passwords are never printed; if
 LAQEETO_DEMO_CREDENTIALS_FILE is set they are written there with chmod 600 (keep it outside the repo).
 Admins are created by promoting a real account with SQL.
-Re-running is safe: demo users are reused (password rotated) and their reports are recreated.
+Every run creates a fresh, independent set (the run id is printed and written to the credentials file).
 Standard library only. No secret is printed.
 """
 import json, os, secrets, string, struct, urllib.error, urllib.request, zlib, uuid
@@ -24,13 +28,21 @@ def demo_password(key):
     a = string.ascii_letters + string.digits
     return ''.join(secrets.choice(a) for _ in range(28)) + secrets.choice('!@#%^*-_') + secrets.choice(string.digits)
 
+PRODUCTION_REFS = {'yymuypxnoroszkxttmgh'}
+RUN = secrets.token_hex(4)
+
+def rand_imei(prefix='35'):
+    d = [int(c) for c in prefix] + [secrets.randbelow(10) for _ in range(14 - len(prefix))]
+    t = sum(x if i % 2 == 0 else (x * 2 - 9 if x * 2 > 9 else x * 2) for i, x in enumerate(d))
+    return ''.join(map(str, d)) + str((10 - t % 10) % 10)
+
 USERS = [
-    dict(key='owner', email='owner@demo.eg', meta={'name': 'أحمد محمود', 'phone': '01012345678', 'role': 'owner'}),
-    dict(key='mona', email='mona@demo.eg', meta={'name': 'منى السيد', 'phone': '01198765432', 'role': 'owner'}),
-    dict(key='tech', email='tech@demo.eg', meta={'name': 'كريم حسن', 'phone': '01234567890', 'role': 'technician',
-         'shop_name': 'مركز النور لصيانة الموبايل', 'address': 'شارع التحرير، الدقي', 'governorate': 'الجيزة', 'device_imei': '354678119876543'}),
-    dict(key='newtech', email='newtech@demo.eg', meta={'name': 'سامح عادل', 'phone': '01555555555', 'role': 'technician',
-         'shop_name': 'سامح موبايل', 'address': 'ميدان الساعة', 'governorate': 'الإسكندرية', 'device_imei': '864123055566777'}),
+    dict(key='owner', email=f'demo-{RUN}-owner@example.com', meta={'name': 'أحمد محمود', 'phone': '01000000001', 'role': 'owner'}),
+    dict(key='mona', email=f'demo-{RUN}-mona@example.com', meta={'name': 'منى السيد', 'phone': '01100000002', 'role': 'owner'}),
+    dict(key='tech', email=f'demo-{RUN}-tech@example.com', meta={'name': 'كريم حسن', 'phone': '01234567890', 'role': 'technician',
+         'shop_name': 'مركز النور لصيانة الموبايل', 'address': 'شارع التحرير، الدقي', 'governorate': 'الجيزة', 'device_imei': rand_imei('35')}),
+    dict(key='newtech', email=f'demo-{RUN}-newtech@example.com', meta={'name': 'سامح عادل', 'phone': '01555555555', 'role': 'technician',
+         'shop_name': 'سامح موبايل', 'address': 'ميدان الساعة', 'governorate': 'الإسكندرية', 'device_imei': rand_imei('86')}),
 ]
 
 def png(w, h, bg, fg, pattern='box'):
@@ -95,14 +107,18 @@ class Api:
         return j[0]
 
 def run(url, anon, sql, service_key=None, log=print):
+    if os.environ.get('LAQEETO_SEED_DEMO') != 'yes':
+        log('seed skipped: demo data is opt-in (set LAQEETO_SEED_DEMO=yes, test/staging projects only)'); return None
+    if any(ref in url for ref in PRODUCTION_REFS) and os.environ.get('LAQEETO_SEED_DEMO_ALLOW_PRODUCTION') != 'yes':
+        raise SystemExit('refusing to seed demo data into the PRODUCTION project')
     api = Api(url, anon, log)
-    log('seeding demo accounts …')
+    log(f'seeding demo accounts (run {RUN}) …')
     passwords = {u['key']: demo_password(u['key']) for u in USERS}
     S = {u['key']: api.session(u['email'], passwords[u['key']], u['meta'], sql) for u in USERS}
     cred_file = os.environ.get('LAQEETO_DEMO_CREDENTIALS_FILE')
     if cred_file:
         fd = os.open(cred_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, 'w') as f: json.dump({u['email']: passwords[u['key']] for u in USERS}, f, indent=2)
+        with os.fdopen(fd, 'w') as f: json.dump({'run': RUN, 'cleanup_pattern': f'demo-{RUN}-%@example.com', 'accounts': {u['email']: passwords[u['key']] for u in USERS}}, f, indent=2)
         log('  demo passwords written to', cred_file, '(chmod 600)')
     ids = {k: v[1] for k, v in S.items()}
     q = lambda v: "'" + str(v).replace("'", "''") + "'"
@@ -124,17 +140,17 @@ def run(url, anon, sql, service_key=None, log=print):
     sql(f"delete from public.reports where owner_id in ({q(ids['owner'])}, {q(ids['mona'])});")
     def contact(phone, email, public_phone=False):
         return {'phone': {'value': phone, 'public': public_phone}, 'email': {'value': email, 'public': False},
-                'socials': [{'value': 'https://facebook.com/demo.profile', 'public': False}]}
+                'socials': []}
     reports = [
-        ('owner', dict(type='stolen', brand='Samsung', model='Galaxy S23', color='أسود', imei1='356938035643809', imei2='356938035643817', serial='R58N12ABCDE',
+        ('owner', dict(type='stolen', brand='Samsung', model='Galaxy S23', color='أسود', imei1=rand_imei('35'), imei2=rand_imei('35'),
                        governorate='القاهرة', place='مترو السادات', description='سُرق من الجيب في زحام المترو.', police_number='1234 لسنة 2026 إداري قصر النيل',
-                       contact=contact('01012345678', 'owner@demo.eg'))),
-        ('owner', dict(type='lost', brand='Apple iPhone', model='13', color='أزرق', imei1='352099001761481', governorate='الجيزة', place='تاكسي من المهندسين',
-                       description='نسيته في تاكسي.', contact=contact('01012345678', 'owner@demo.eg'))),
-        ('mona', dict(type='stolen', brand='Xiaomi', model='Redmi Note 12', color='أخضر', imei1='868910041234577', governorate='الإسكندرية', place='محطة الرمل',
-                      description='خطف من اليد.', police_number='987 لسنة 2026', contact=contact('01198765432', 'mona@demo.eg', True))),
-        ('mona', dict(type='stolen', brand='Oppo', model='Reno 8', color='فضي', imei1='353325101234569', governorate='القاهرة', place='مدينة نصر',
-                      contact=contact('01198765432', 'mona@demo.eg'))),
+                       contact=contact('01000000001', USERS[0]['email']))),
+        ('owner', dict(type='lost', brand='Apple iPhone', model='13', color='أزرق', imei1=rand_imei('35'), governorate='الجيزة', place='تاكسي من المهندسين',
+                       description='نسيته في تاكسي.', contact=contact('01000000001', USERS[0]['email']))),
+        ('mona', dict(type='stolen', brand='Xiaomi', model='Redmi Note 12', color='أخضر', imei1=rand_imei('86'), governorate='الإسكندرية', place='محطة الرمل',
+                      description='خطف من اليد.', police_number='987 لسنة 2026', contact=contact('01100000002', USERS[1]['email'], True))),
+        ('mona', dict(type='stolen', brand='Oppo', model='Reno 8', color='فضي', imei1=rand_imei('35'), governorate='القاهرة', place='مدينة نصر',
+                      contact=contact('01100000002', USERS[1]['email']))),
     ]
     rep = []
     for who, r in reports:
@@ -147,5 +163,6 @@ def run(url, anon, sql, service_key=None, log=print):
     tech_tok, owner_tok = S['tech'][0], S['owner'][0]
     conv = api.rpc(tech_tok, 'message_owner', {'p_report': rep[1]['id'], 'p_body': 'السلام عليكم، جالي عميل عايز يبيع iPhone 13 أزرق والـ IMEI بتاعه مطابق لبلاغك. ممكن تيجي المحل بعلبة الموبايل؟'})
     api.rpc(owner_tok, 'send_message', {'p_conv': conv, 'p_body': 'وعليكم السلام، شكراً جداً! هاجي بكرة الساعة 5 ومعايا العلبة والفاتورة.'})
-    log('demo data ready: 4 accounts (random passwords, no admin), 4 reports, 1 conversation')
+    log(f'demo data ready (run {RUN}): 4 accounts (random passwords, no admin), 4 reports, 1 conversation. '
+        f"Remove with: python3 tests/cleanup.py 'demo-{RUN}-%@example.com'")
     return ids

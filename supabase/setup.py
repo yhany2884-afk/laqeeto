@@ -6,14 +6,14 @@ Laqeeto — one-shot Supabase setup via the Management API (https://api.supabase
   python3 supabase/setup.py --steps schema,auth                        # selected steps
 
 Token: env SUPABASE_ACCESS_TOKEN, else the file ~/.supabase_token (chmod 600).
-Steps: project, schema, auth, config, seed   (default: all, in that order)
+Steps: project, schema, auth, config, seed   (default: project,schema,auth,config — 'seed' is opt-in, test projects only)
 
  * Finds or creates organization "laqeeto" and project "laqeeto" (region eu-central-1).
  * DB password: generated, saved to ~/.laqeeto_db_password (chmod 600). Never printed.
  * Applies supabase/schema.sql (tables, RLS, RPCs, storage buckets + policies).
  * Auth: site URL + redirect allow-list = GitHub Pages; email confirmation OFF (prototype).
  * Writes the project URL + public anon (publishable) key into js/config.js.
- * Seeds demo accounts / reports (supabase/seed_demo.py) using only the public anon key + SQL.
+ * Optionally (--steps seed + LAQEETO_SEED_DEMO=yes, never production) seeds random demo data (supabase/seed_demo.py).
 The access token, service-role/secret keys and the DB password are never printed or written to the repo.
 Only the Python standard library is used.
 """
@@ -180,7 +180,7 @@ def step_seed(m):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--steps', default='project,schema,auth,config,seed')
+    ap.add_argument('--steps', default='project,schema,auth,config')
     a = ap.parse_args()
     steps = [s.strip() for s in a.steps.split(',') if s.strip()]
     m = Mgmt()

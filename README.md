@@ -31,9 +31,9 @@
 - **الدعم الفني** يراجع طلبات الفنيين (البطاقة والسيلفي جنباً إلى جنب)، يدير البلاغات والنزاعات وبلاغات الإكراه، يوقف الفنيين المخالفين، ويطلع على سجل العمليات.
 
 ## التجربة
-- **فحص IMEI بدون تسجيل:** أرقام تجريبية: `356938035643809` (مسروق)، `352099001761481` (مفقود)، `868910041234577` (مسروق — رقم المالك ظاهر للعامة)، `353325101234569` (تم التسليم)، `490154203237518` (غير مبلغ عنه).
+- **فحص IMEI بدون تسجيل:** اكتب أي رقم IMEI من صفحة الفحص. قاعدة البيانات الحقيقية لا تحتوي على بيانات تجريبية.
 - **حساب مالك:** أنشئ حساباً مجانياً من صفحة «إنشاء حساب».
-- **لا توجد حسابات تجريبية بكلمات مرور عامة.** حسابات البيانات التجريبية (البلاغات أعلاه) لها كلمات مرور عشوائية طويلة غير منشورة، وحساب الدعم الفني (الأدمن) حساب شخصي لصاحب المشروع فقط.
+- **لا توجد حسابات تجريبية.** حساب الدعم الفني (الأدمن) حساب شخصي لصاحب المشروع فقط، والاختبارات تنشئ حسابات مؤقتة بأسماء عشوائية وتحذفها مع كل بياناتها وملفاتها بعد الانتهاء (`tests/cleanup.py`).
 
 > ⚠️ لا تنشر أبداً كلمة مرور حساب أدمن في المستودع أو في واجهة التطبيق. لإنشاء حساب أدمن: سجّل حساباً عادياً ثم رقّه عبر SQL (`update public.profiles set role = 'admin' where id = …`) — لا يمكن لأي مستخدم ترقية نفسه.
 
@@ -69,7 +69,7 @@
 سكربت بايثون بمكتبات قياسية فقط يستخدم Supabase Management API:
 ```bash
 export SUPABASE_ACCESS_TOKEN=sbp_...     # أو ضعه في ~/.supabase_token (chmod 600)
-python3 supabase/setup.py                 # كل الخطوات: project,schema,auth,config,seed
+python3 supabase/setup.py                 # الخطوات الافتراضية: project,schema,auth,config (بدون بيانات تجريبية)
 python3 supabase/setup.py --steps schema  # خطوات محددة (مثلاً بعد تعديل schema.sql)
 ```
 | الخطوة | ماذا تفعل |
@@ -78,7 +78,7 @@ python3 supabase/setup.py --steps schema  # خطوات محددة (مثلاً ب
 | `schema` | يطبّق `supabase/schema.sql` (قابل لإعادة التشغيل): الجداول، RLS، الدوال، الحاويات وسياساتها. |
 | `auth` | رابط الموقع وقائمة روابط إعادة التوجيه (GitHub Pages + localhost)، إيقاف تأكيد البريد، حد أدنى 6 أحرف لكلمة المرور. |
 | `config` | يكتب `js/config.js` بالرابط والمفتاح العام. |
-| `seed` | ينشئ حسابات وبلاغات البيانات التجريبية بكلمات مرور **عشوائية** (أو من متغيرات البيئة `LAQEETO_DEMO_PASSWORD_*`) لا تُطبع ولا تُحفظ في المستودع، ولا ينشئ أي حساب أدمن. عبر الواجهة العامة + SQL لاعتماد الفني. |
+| `seed` | **اختياري ولمشاريع الاختبار فقط:** ينشئ بيانات تجريبية عشوائية (بريد `demo-<run>-…@example.com` وأرقام IMEI عشوائية وكلمات مرور عشوائية، بدون أدمن). لا يعمل إلا مع `LAQEETO_SEED_DEMO=yes` ويرفض مشروع الإنتاج. للحذف: `python3 tests/cleanup.py 'demo-<run>-%@example.com'` |
 
 لا يطبع السكربت ولا يحفظ داخل المستودع رمز الوصول ولا مفتاح `service_role` ولا كلمة مرور قاعدة البيانات.
 
@@ -124,7 +124,7 @@ js/ui.js · camera.js · pwa.js   عناصر مشتركة، الكاميرا ا�
 js/views/*.js           الشاشات: عامة، دخول/تسجيل، المالك، الفني، الرسائل، الدعم
 supabase/schema.sql     الجداول + RLS + الدوال + الحاويات (قابل لإعادة التشغيل)
 supabase/setup.py       إعداد المشروع عبر Management API
-supabase/seed_demo.py   البيانات التجريبية
+supabase/seed_demo.py   بيانات تجريبية اختيارية (لمشاريع الاختبار فقط)
 docs/PLAN.md            خطة المنتج الكاملة
 native/                 التطبيقات المستقلة (لا تُنشر على الموقع):
   scripts/build-www.mjs   ينسخ ملفات الويب من جذر المستودع إلى native/www
@@ -179,9 +179,9 @@ npx @capacitor/assets generate --android --ios   # إعادة توليد الأ�
 - **Backend: Supabase** (project `yymuypxnoroszkxttmgh`, eu-central-1, free plan) — Auth (email/password), Postgres with strict **Row Level Security** + column grants, `SECURITY DEFINER` RPCs for every privileged flow (public search returns only public columns; rate-limited guest messaging with hashed guest tokens; technician check/handover/disputes/admin tools with server-side role checks and an audit log), and three **private** Storage buckets served via signed URLs. The anon key cannot read any table directly.
 - `js/config.js` holds only the project URL and the **public anon/publishable key** (safe to publish). The service_role/secret key, the Management API token and the DB password are never in the repo.
 - **Email confirmation is OFF** for the prototype (Supabase's built-in mailer is heavily rate-limited); enable it with a custom SMTP before production. The UI already handles the "confirm your email" case.
-- **Setup:** `SUPABASE_ACCESS_TOKEN=… python3 supabase/setup.py [--steps project,schema,auth,config,seed]` (stdlib only; token may also live in `~/.supabase_token`, DB password is written to `~/.laqeeto_db_password`, chmod 600).
+- **Setup:** `SUPABASE_ACCESS_TOKEN=… python3 supabase/setup.py [--steps project,schema,auth,config[,seed]]` (stdlib only; token may also live in `~/.supabase_token`, DB password is written to `~/.laqeeto_db_password`, chmod 600).
 - **Free tier:** the project **pauses after ~1 week of inactivity** — restore it from the Supabase dashboard (data is kept).
 - **Limitations:** simulated face match (manual admin review), dispute video stored as file name only, chat uses 6-second polling (no realtime/push).
-- **No public demo credentials:** seed accounts get random passwords (or `LAQEETO_DEMO_PASSWORD_*` env vars); the seed never creates an admin. Admins are promoted manually via SQL.
+- **No demo data in production:** no demo accounts or demo IMEIs exist in the live DB. The optional seed (`LAQEETO_SEED_DEMO=yes`, refuses the production project) creates random accounts/IMEIs with random passwords and never an admin. Tests create random temporary accounts and purge them (rows + storage) with `tests/cleanup.py`. Admins are promoted manually via SQL.
 - **Native apps** (`native/`, built by `.github/workflows/build.yml` on `v*` tags): signed Android APK (Capacitor 8), Windows NSIS installer and macOS arm64/x64 DMGs (Electron, unsigned/ad-hoc), unsigned iPhone IPA for sideloading. Direct links: `https://github.com/yhany2884-afk/laqeeto/releases/latest/download/<file>`.
 - **Roadmap:** SMTP + SMS OTP, real KYC face-match + liveness, Realtime + push, CAPTCHA, legal/privacy review (Egyptian PDPL 151/2020, police/NTRA cooperation), Capacitor store builds.
