@@ -1,5 +1,6 @@
 // تثبيت التطبيق — PWA install handling
 import { modal } from './ui.js';
+import { icon } from './icons.js';
 
 let deferredPrompt = null;
 const listeners = new Set();
@@ -35,18 +36,17 @@ export function initPWA() {
 
 export const installInstructionsHTML = () => `
   <div class="install-steps">
-    <section><h4>📱 آيفون / آيباد (Safari)</h4><ol>
-      <li>افتح الموقع من متصفح <b>Safari</b>.</li>
-      <li>اضغط زر <b>المشاركة</b> <span class="kbd">⬆️</span> أسفل الشاشة.</li>
-      <li>اختر <b>«إضافة إلى الشاشة الرئيسية» (Add to Home Screen)</b>.</li>
-      <li>اضغط <b>إضافة</b> — ستجد أيقونة «لقيته» على شاشتك.</li></ol></section>
-    <section><h4>🤖 أندرويد (Chrome)</h4><ol>
-      <li>اضغط زر <b>«تثبيت التطبيق»</b> داخل التطبيق، أو</li>
-      <li>من قائمة Chrome <span class="kbd">⋮</span> اختر <b>«تثبيت التطبيق» / «إضافة إلى الشاشة الرئيسية»</b>.</li></ol></section>
-    <section><h4>💻 ويندوز / ماك (Chrome أو Edge)</h4><ol>
-      <li>اضغط أيقونة التثبيت <span class="kbd">⊕</span> في شريط العنوان، أو من القائمة اختر <b>«تثبيت لقيته»</b>.</li></ol></section>
-    <section><h4>📦 ملفات تثبيت مستقلة</h4><p>نسخة أندرويد (APK) وويندوز (EXE) وماك (DMG) وآيفون (IPA غير موقّع) متاحة من
-      <a href="${RELEASES_URL}" target="_blank" rel="noopener noreferrer">صفحة الإصدارات على GitHub</a>.</p></section>
+    <section><h4>آيفون (Safari)</h4><ol>
+      <li>افتح الموقع من <b>Safari</b>.</li>
+      <li>دوس على زرار المشاركة <span class="kbd">${icon('share-2', { size: 14 })}</span>.</li>
+      <li>اختار <b>«إضافة إلى الشاشة الرئيسية»</b> وبعدين <b>إضافة</b>.</li></ol></section>
+    <section><h4>أندرويد (Chrome)</h4><ol>
+      <li>دوس <b>«ثبّت التطبيق»</b>، أو</li>
+      <li>من قايمة Chrome <span class="kbd">⋮</span> اختار <b>«تثبيت التطبيق»</b>.</li></ol></section>
+    <section><h4>ويندوز أو ماك (Chrome / Edge)</h4><ol>
+      <li>دوس على أيقونة التثبيت في شريط العنوان، أو من القايمة اختار <b>«تثبيت لقيته»</b>.</li></ol></section>
+    <section><h4>ملفات التثبيت</h4><p>نسخة أندرويد وويندوز وماك وآيفون موجودة في
+      <a href="${RELEASES_URL}" target="_blank" rel="noopener noreferrer">صفحة التحميل</a>.</p></section>
   </div>`;
 
 export async function promptInstall() {
@@ -56,6 +56,6 @@ export async function promptInstall() {
     deferredPrompt = null; notify();
     return outcome;
   }
-  modal({ title: isIOS() ? 'تثبيت التطبيق على آيفون' : 'تثبيت التطبيق', body: (isStandalone() ? '<div class="alert alert-ok">التطبيق مثبت بالفعل على هذا الجهاز ✅</div>' : '') + installInstructionsHTML() });
+  modal({ title: 'ثبّت لقيته', body: (isStandalone() ? `<div class="alert alert-ok">${icon('circle-check', { size: 18 })}<div>التطبيق متثبّت على الجهاز ده.</div></div>` : '') + installInstructionsHTML() });
   return 'instructions';
 }

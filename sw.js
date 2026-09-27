@@ -1,6 +1,6 @@
 /* Service worker — caches the whole app shell so it works offline.
  * Bump CACHE_VERSION whenever you change any file so users get the update. */
-const CACHE_VERSION = 'laqeeto-v2.0.4';
+const CACHE_VERSION = 'laqeeto-v2.1.0';
 const ASSETS = [
   './',
   './index.html',
@@ -14,6 +14,8 @@ const ASSETS = [
   './js/ui.js',
   './js/camera.js',
   './js/pwa.js',
+  './js/icons.js',
+  './js/splash.js',
   './js/views/public.js',
   './js/views/auth.js',
   './js/views/owner.js',
@@ -27,6 +29,12 @@ const ASSETS = [
   './icons/maskable-512.png',
   './icons/apple-touch-icon.png',
   './icons/favicon-32.png',
+  './fonts/plex-arabic-arabic-400.woff2',
+  './fonts/plex-arabic-arabic-500.woff2',
+  './fonts/plex-arabic-arabic-700.woff2',
+  './fonts/plex-arabic-latin-400.woff2',
+  './fonts/plex-arabic-latin-500.woff2',
+  './fonts/plex-arabic-latin-700.woff2',
 ];
 
 self.addEventListener('install', (event) => {

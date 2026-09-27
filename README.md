@@ -157,6 +157,26 @@ npm run cap:sync          # نسخ الواجهة إلى android/ و ios/ ثم �
 npx @capacitor/assets generate --android --ios   # إعادة توليد الأيقونات من native/assets
 ```
 
+## التصميم والأصول (للمطورين)
+
+- **الخط:** IBM Plex Sans Arabic (رخصة SIL OFL 1.1، الملف `fonts/OFL.txt`) مستضاف داخل التطبيق، أوزان 400/500/700.
+- **الأيقونات:** Lucide (رخصة ISC، `icons/LICENSE-lucide.txt`) كـ SVG داخل `js/icons.js`، مفيش خطوط أيقونات ولا CDN.
+- **الألوان:** لون أساسي واحد `#16499B` + رماديات + أخضر/أحمر/أصفر للحالات فقط (المتغيرات في أول `css/style.css`).
+- **الشعار وأيقونات التطبيقات وشاشات البداية:** كلها بتتولد من نفس رسمة الشعار:
+  `python3 native/scripts/gen-brand-assets.py` (محتاج Playwright + Pillow)، وبيحدّث أيقونات الويب وأندرويد وآيفون والكمبيوتر.
+- **أنيميشن الفتح/القفل:** CSS/SVG داخل `index.html` (مرة واحدة لكل تشغيل، تقدر تتخطاه، وبيحترم `prefers-reduced-motion`)،
+  وأنيميشن الخروج في `js/splash.js` (عند تسجيل الخروج، وعند قفل شباك تطبيق الكمبيوتر). لون شاشة البداية في أندرويد وآيفون والكمبيوتر هو نفس لون الأنيميشن عشان مفيش وميض أبيض.
+
+## الاختبارات
+
+- `tests/security_attack_test.py`: اختبارات هجوم على الـ API (صلاحيات، رفع ملفات، XSS، rate limit).
+- `tests/e2e_flow_test.py`: رحلة كاملة في المتصفح (مالك، ضيف، فني، أدمن، تسليم، نزاع، وضع بدون نت).
+- الاتنين بيعملوا حسابات مؤقتة `lqtest-*@example.com` وبيمسحوها هي وملفاتها في الآخر:
+  ```bash
+  LAQEETO_TEST_CREDENTIALS=~/.laqeeto_admin_credentials LAQEETO_DB_PASSWORD_FILE=~/.laqeeto_db_password python3 tests/e2e_flow_test.py
+  ```
+- `supabase/functions_api.py`: نشر Edge Functions وضبط الـ secrets عن طريق Management API (التوكن بيتقري من متغير بيئة أو ملف، ومبيتطبعش).
+
 ## القيود الحالية
 - مطابقة الوجه بين السيلفي والبطاقة **محاكاة** — المراجعة يدوية من الدعم.
 - فيديو الإثبات في النزاعات يُحفظ **كاسم ملف فقط** (لا يُرفع الفيديو).

@@ -1,51 +1,49 @@
-## لقيته {{VERSION}} — سجل الهواتف المسروقة والمفقودة 📱🔍
+## لقيته {{VERSION}}
 
-تطبيقات مستقلة لكل جهاز، متصلة بنفس قاعدة البيانات المشتركة (Supabase) التي يستخدمها موقع الويب — حسابك وبلاغاتك ورسائلك واحدة في كل مكان.
+اتأكد من أي موبايل قبل ما تشتريه، وبلّغ عن موبايلك لو اتسرق أو ضاع. نفس حسابك شغال على الموبايل والكمبيوتر والموقع.
 
-🌐 **بدون تثبيت:** https://yhany2884-afk.github.io/laqeeto/
+**من غير تثبيت:** https://yhany2884-afk.github.io/laqeeto/
 
 | الجهاز | الملف |
 |---|---|
-| 🤖 أندرويد 7 فأحدث | [Laqeeto-Android.apk](https://github.com/yhany2884-afk/laqeeto/releases/download/{{VERSION}}/Laqeeto-Android.apk) |
-| 🪟 ويندوز 10/11 (64-bit) | [Laqeeto-Windows-Setup.exe](https://github.com/yhany2884-afk/laqeeto/releases/download/{{VERSION}}/Laqeeto-Windows-Setup.exe) |
-| 🍎 ماك بمعالج Apple (M1/M2/M3/M4…) | [Laqeeto-macOS-arm64.dmg](https://github.com/yhany2884-afk/laqeeto/releases/download/{{VERSION}}/Laqeeto-macOS-arm64.dmg) |
-| 🍏 ماك بمعالج Intel | [Laqeeto-macOS-x64.dmg](https://github.com/yhany2884-afk/laqeeto/releases/download/{{VERSION}}/Laqeeto-macOS-x64.dmg) |
-| 📱 آيفون / آيباد (للتحميل الجانبي) | [Laqeeto-iPhone-unsigned.ipa](https://github.com/yhany2884-afk/laqeeto/releases/download/{{VERSION}}/Laqeeto-iPhone-unsigned.ipa) |
+| أندرويد 7 أو أحدث | [Laqeeto-Android.apk](https://github.com/yhany2884-afk/laqeeto/releases/download/{{VERSION}}/Laqeeto-Android.apk) |
+| ويندوز 10/11 (64-bit) | [Laqeeto-Windows-Setup.exe](https://github.com/yhany2884-afk/laqeeto/releases/download/{{VERSION}}/Laqeeto-Windows-Setup.exe) |
+| ماك بمعالج Apple (M1 وما بعده) | [Laqeeto-macOS-arm64.dmg](https://github.com/yhany2884-afk/laqeeto/releases/download/{{VERSION}}/Laqeeto-macOS-arm64.dmg) |
+| ماك بمعالج Intel | [Laqeeto-macOS-x64.dmg](https://github.com/yhany2884-afk/laqeeto/releases/download/{{VERSION}}/Laqeeto-macOS-x64.dmg) |
+| آيفون / آيباد (تثبيت يدوي) | [Laqeeto-iPhone-unsigned.ipa](https://github.com/yhany2884-afk/laqeeto/releases/download/{{VERSION}}/Laqeeto-iPhone-unsigned.ipa) |
 
-> هذه نسخة تجريبية (Prototype) غير موقّعة من Apple أو Microsoft، لذلك سيظهر تحذير عند التثبيت — هذا متوقع. خطوات التثبيت بالأسفل.
+> التطبيق مش من المتجر، فهيظهرلك تحذير وإنت بتثبّته. ده طبيعي، والخطوات تحت.
 
-### 🤖 أندرويد
-1. حمّل `Laqeeto-Android.apk` من الهاتف وافتحه.
-2. إذا ظهرت رسالة «لأسباب أمنية غير مسموح…» اضغط **الإعدادات** وفعّل **«السماح من هذا المصدر»** (تثبيت تطبيقات غير معروفة) للمتصفح أو مدير الملفات، ثم ارجع واضغط **تثبيت**.
-3. قد يعرض Google Play Protect تحذيراً لأن التطبيق ليس من المتجر: اختر **«التثبيت على أي حال»**.
-4. عند أول استخدام للسيلفي المباشر اسمح للتطبيق باستخدام **الكاميرا**.
+### أندرويد
+1. نزّل `Laqeeto-Android.apk` على الموبايل وافتحه.
+2. لو ظهرت رسالة «غير مسموح لأسباب أمنية»، دوس **الإعدادات** وفعّل **«السماح من هذا المصدر»**، وارجع دوس **تثبيت**.
+3. لو Google Play Protect حذّرك، اختار **«التثبيت على أي حال»**.
+4. أول مرة تصوّر سيلفي، اسمح للتطبيق يستخدم **الكاميرا**.
 
-### 🪟 ويندوز
-1. حمّل `Laqeeto-Windows-Setup.exe` وشغّله.
-2. إذا ظهرت شاشة **Windows SmartScreen** الزرقاء اضغط **«مزيد من المعلومات» (More info)** ثم **«تشغيل على أي حال» (Run anyway)**.
-3. اتبع خطوات المثبّت؛ ستجد اختصار «لقيته» على سطح المكتب وفي قائمة ابدأ.
+### ويندوز
+1. نزّل `Laqeeto-Windows-Setup.exe` وشغّله.
+2. لو ظهرت شاشة زرقا (SmartScreen)، دوس **More info** وبعدين **Run anyway**.
+3. هتلاقي «لقيته» على سطح المكتب وفي قائمة ابدأ.
 
-### 🍎 ماك
-1. اختر الملف المناسب لجهازك (من قائمة  ← «حول هذا الماك»: Chip = Apple → `arm64`، Processor = Intel → `x64`).
-2. افتح ملف `.dmg` واسحب **Laqeeto** إلى مجلد **Applications**.
-3. أول مرة: اضغط على التطبيق **بزر الماوس الأيمن ← فتح (Open)** ثم **فتح**. في macOS 15 (Sequoia) فأحدث: حاول فتحه مرة، ثم اذهب إلى **إعدادات النظام ← الخصوصية والأمان** واضغط **«فتح على أي حال» (Open Anyway)**.
-4. اسمح بالوصول إلى **الكاميرا** عند الطلب (للسيلفي المباشر).
+### ماك
+1. اختار الملف المناسب: من قائمة  ← «حول هذا الماك»، لو Chip = Apple نزّل `arm64`، لو Processor = Intel نزّل `x64`.
+2. افتح ملف `.dmg` واسحب **Laqeeto** لفولدر **Applications**.
+3. أول مرة: كليك يمين على التطبيق ← **Open** ← **Open**. في macOS 15 أو أحدث: جرّب تفتحه مرة، وبعدين روح **System Settings ← Privacy & Security** ودوس **Open Anyway**.
+4. اسمح بالكاميرا لما يطلب.
 
-### 📱 آيفون / آيباد
-**الطريقة الأسهل (موصى بها):** افتح https://yhany2884-afk.github.io/laqeeto/ في **Safari** ← زر **المشاركة** ⬆️ ← **«إضافة إلى الشاشة الرئيسية»**.
+### آيفون / آيباد
+**الأسهل:** افتح https://yhany2884-afk.github.io/laqeeto/ من **Safari** ← زرار **المشاركة** ← **«إضافة إلى الشاشة الرئيسية»**.
 
-**أو تثبيت ملف IPA (للمتقدمين):** الملف غير موقّع، ويجب توقيعه بحساب Apple ID الخاص بك:
-1. ثبّت **[Sideloadly](https://sideloadly.io/)** (ويندوز/ماك) أو **AltStore**، ووصّل الآيفون بالكمبيوتر.
-2. اسحب `Laqeeto-iPhone-unsigned.ipa` إلى Sideloadly، وأدخل Apple ID، واضغط **Start**.
-3. على الآيفون: **الإعدادات ← عام ← VPN وإدارة الأجهزة** ← اختر حسابك ← **وثوق (Trust)**. وفي iOS 16 فأحدث فعّل **وضع المطوّر (Developer Mode)** من **الإعدادات ← الخصوصية والأمان**.
-4. مع حساب Apple مجاني **تنتهي صلاحية التطبيق كل 7 أيام** ويجب إعادة توقيعه (Sideloadly/AltStore يمكنهما التجديد).
+**أو تثبيت ملف IPA (للي فاهم في الموضوع):**
+1. ثبّت **[Sideloadly](https://sideloadly.io/)** أو **AltStore** على الكمبيوتر ووصّل الآيفون.
+2. اسحب `Laqeeto-iPhone-unsigned.ipa` على Sideloadly، واكتب الـ Apple ID، ودوس **Start**.
+3. على الآيفون: **الإعدادات ← عام ← VPN وإدارة الأجهزة** ← اختار حسابك ← **Trust**. في iOS 16 أو أحدث فعّل **Developer Mode** من **الإعدادات ← الخصوصية والأمان**.
+4. بحساب Apple مجاني، التطبيق لازم يتجدد كل 7 أيام من Sideloadly أو AltStore.
 
-### ℹ️ ملاحظات
-- كل النسخ تحتاج اتصالاً بالإنترنت للفحص والإبلاغ والرسائل.
-- نسخة تجريبية — لا تضع بيانات حساسة. أنشئ حسابك الخاص من داخل التطبيق.
-- التطبيق لا يتحدث تلقائياً: حمّل الإصدار الأحدث من صفحة الإصدارات.
-- قاعدة البيانات على الخطة المجانية وقد تتوقف مؤقتاً بعد أسبوع بدون نشاط.
-- للتحقق من سلامة الملفات: `SHA256SUMS.txt`.
+### ملاحظات
+- الفحص والبلاغات والرسايل محتاجين نت.
+- التطبيق مش بيتحدّث لوحده. نزّل آخر إصدار من صفحة الإصدارات.
+- عشان تتأكد إن الملفات سليمة: `SHA256SUMS.txt`.
 
 ---
-**English:** Native builds of Laqeeto (Stolen Phone Registry) sharing the same Supabase backend as the web app. Android APK (signed), Windows NSIS installer (x64), macOS DMG for Apple Silicon (arm64) and Intel (x64) — ad-hoc signed, not notarized (right-click → Open / Privacy & Security → Open Anyway), and an **unsigned** iPhone IPA for sideloading with Sideloadly/AltStore (re-sign every 7 days with a free Apple ID). Windows: SmartScreen → More info → Run anyway. Web: https://yhany2884-afk.github.io/laqeeto/
+**English:** Laqeeto for Android (APK), Windows (installer), macOS (Apple Silicon and Intel DMG) and iPhone (unsigned IPA for sideloading). The same account works in the apps and on the web. Not from an app store, so expect an install warning: Windows SmartScreen → More info → Run anyway; macOS right-click → Open (or Privacy & Security → Open Anyway). Web: https://yhany2884-afk.github.io/laqeeto/

@@ -2,7 +2,7 @@
 // privileged custom protocol app://laqeeto/ so ES modules, localStorage, getUserMedia (secure
 // context) and fetch() to Supabase all behave like on https.
 'use strict';
-const { app, BrowserWindow, Menu, net, protocol, session, shell, systemPreferences } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, net, protocol, session, shell, systemPreferences } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
@@ -85,7 +85,7 @@ function buildMenu() {
 function createWindow() {
   win = new BrowserWindow({
     width: 1180, height: 820, minWidth: 360, minHeight: 560,
-    title: 'لقيته — Laqeeto', backgroundColor: '#f6f8fb', show: false,
+    title: 'لقيته', backgroundColor: '#16499b', show: false, // same colour as the web launch animation → no white flash
     ...(process.platform === 'linux' ? { icon: path.join(__dirname, '..', 'build', 'icon.png') } : {}),
     autoHideMenuBar: process.platform !== 'darwin',
     webPreferences: {
@@ -95,12 +95,27 @@ function createWindow() {
   });
   win.once('ready-to-show', () => win.show());
   const wc = win.webContents;
+  // Close animation: ask the page to play its exit animation (the lock closes), then really close.
+  // A hard timeout guarantees the window always closes even if the page is busy or crashed.
+  let closing = false;
+  let allowClose = false;
+  win.on('close', (e) => {
+    if (allowClose || wc.isCrashed() || wc.isLoading()) return;
+    e.preventDefault();
+    if (closing) return;
+    closing = true;
+    const timer = setTimeout(() => win.finishClose(), 1200);
+    win.finishClose = () => { clearTimeout(timer); if (!allowClose && !win.isDestroyed()) { allowClose = true; win.close(); } };
+    wc.send('laqeeto:close-requested');
+  });
   // Links with target=_blank, and any navigation away from the bundled app, go to the system browser.
   wc.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' }; });
   wc.on('will-navigate', (e, url) => { if (!isAppUrl(url)) { e.preventDefault(); openExternal(url); } });
   wc.on('will-redirect', (e, url) => { if (!isAppUrl(url)) { e.preventDefault(); } });
   win.loadURL(START_URL);
 }
+
+ipcMain.on('laqeeto:close-ok', (e) => { const w = BrowserWindow.fromWebContents(e.sender); if (w && w.finishClose) w.finishClose(); });
 
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
 app.on('web-contents-created', (_e, contents) => {

@@ -23,8 +23,8 @@ export const isConfigured = () => !!SUPABASE_URL && !/YOUR_/.test(SUPABASE_URL) 
 let sb = null;
 function client() {
   if (!sb) {
-    if (!isConfigured()) throw new Error('لم يتم ربط التطبيق بقاعدة البيانات بعد (js/config.js)');
-    if (!window.supabase?.createClient) throw new Error('تعذر تحميل مكتبة Supabase');
+    if (!isConfigured()) throw new Error('الخدمة مش متاحة دلوقتي');
+    if (!window.supabase?.createClient) throw new Error('الخدمة مش متاحة دلوقتي. حاول تاني');
     sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'pkce', storageKey: 'laqeeto-auth' },
     });
@@ -34,25 +34,25 @@ function client() {
 
 /* ---------------- errors ---------------- */
 const AUTH_MESSAGES = [
-  [/invalid login credentials/i, 'البريد الإلكتروني أو كلمة المرور غير صحيحة'],
-  [/already registered|already been registered|user already exists/i, 'هذا البريد مسجل بالفعل، سجّل الدخول بدلاً من ذلك'],
-  [/email not confirmed/i, 'لم يتم تأكيد البريد الإلكتروني بعد — افتح رسالة التأكيد أولاً'],
-  [/password should be at least|weak password/i, 'كلمة المرور ضعيفة (6 أحرف على الأقل)'],
-  [/rate limit|too many requests|over_request_rate_limit|security purposes/i, 'محاولات كثيرة — انتظر قليلاً ثم حاول مرة أخرى'],
-  [/invalid.*email|email address .* is invalid/i, 'البريد الإلكتروني غير صالح'],
-  [/failed to fetch|networkerror|load failed|fetch failed/i, 'تعذر الاتصال بالخادم — تحقق من اتصالك بالإنترنت'],
-  [/jwt expired/i, 'انتهت الجلسة — سجّل الدخول مرة أخرى'],
-  [/permission denied|row-level security|violates row-level/i, 'ليست لديك صلاحية لهذا الإجراء'],
+  [/invalid login credentials/i, 'الإيميل أو كلمة السر مش صح'],
+  [/already registered|already been registered|user already exists/i, 'الإيميل ده عليه حساب بالفعل. سجّل دخول'],
+  [/email not confirmed/i, 'لسه ما أكدتش الإيميل. افتح رسالة التأكيد الأول'],
+  [/password should be at least|weak password/i, 'كلمة السر ضعيفة (٨ حروف على الأقل)'],
+  [/rate limit|too many requests|over_request_rate_limit|security purposes/i, 'محاولات كتير. استنى شوية وجرّب تاني'],
+  [/invalid.*email|email address .* is invalid/i, 'الإيميل مش صح'],
+  [/failed to fetch|networkerror|load failed|fetch failed/i, 'مش قادرين نوصل. اتأكد من النت وحاول تاني'],
+  [/jwt expired/i, 'الجلسة خلصت. سجّل دخول تاني'],
+  [/permission denied|row-level security|violates row-level/i, 'مش مسموحلك تعمل ده'],
   [/duplicate key value.*reports_one_active_imei1/i, 'يوجد بلاغ نشط بالفعل لهذا الرقم. إذا كان الهاتف ملكك فعلاً افتح نزاعاً أو تواصل مع الدعم الفني.'],
-  [/violates check constraint/i, 'بعض البيانات غير صحيحة — راجع الحقول'],
-  [/payload too large|exceeded the maximum allowed size/i, 'حجم الصورة كبير جداً'],
+  [/violates check constraint/i, 'فيه بيانات مش مظبوطة. راجع الخانات'],
+  [/payload too large|exceeded the maximum allowed size/i, 'الصورة كبيرة قوي'],
 ];
 function toError(error) {
   const msg = error?.message || String(error || 'خطأ غير معروف');
   if (/[\u0600-\u06FF]/.test(msg)) return new Error(msg); // server already speaks Arabic
   for (const [re, ar] of AUTH_MESSAGES) if (re.test(msg)) return new Error(ar);
   console.warn('db error', error);
-  return new Error('حدث خطأ: ' + msg);
+  return new Error('حصلت مشكلة. حاول تاني');
 }
 async function run(promise) {
   let res;

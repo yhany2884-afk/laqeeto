@@ -2,8 +2,18 @@
   "appId": "io.github.yhany2884afk.laqeeto",
   "appName": "لقيته",
   "webDir": "www",
-  "backgroundColor": "#f6f8fb",
-  "server": { "androidScheme": "https" },
-  "android": { "allowMixedContent": false, "captureInput": false, "webContentsDebuggingEnabled": false },
-  "ios": { "contentInset": "never", "scrollEnabled": true, "limitsNavigationsToAppBoundDomains": false }
+  "backgroundColor": "#16499b",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "ios": {
+    "contentInset": "never",
+    "scrollEnabled": true,
+    "limitsNavigationsToAppBoundDomains": false
+  }
 }

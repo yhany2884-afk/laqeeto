@@ -2,6 +2,7 @@
 // Selfies must be taken live: no gallery upload. We only fall back to an <input capture> when
 // getUserMedia is not available at all (very old browsers / insecure context).
 import { esc, imageFileToDataURL } from './utils.js';
+import { icon } from './icons.js';
 
 export const hasLiveCamera = () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.isSecureContext !== false);
 
@@ -21,21 +22,21 @@ export function openCamera({ facing = 'user', title = 'التقاط صورة' } 
     };
     const live = hasLiveCamera();
     wrap.innerHTML = `<div class="modal camera-modal" role="dialog" aria-modal="true" aria-label="${esc(title)}">
-      <div class="modal-head"><h3>${esc(title)}</h3><button class="icon-btn" data-cancel aria-label="إغلاق">✕</button></div>
+      <div class="modal-head"><h3>${esc(title)}</h3><button class="icon-btn" data-cancel aria-label="إغلاق">${icon('x')}</button></div>
       <div class="modal-body">
         ${live ? `
           <div class="camera-stage ${facing === 'user' ? 'mirror' : ''}">
             <video playsinline autoplay muted></video>
             ${facing === 'user' ? '<div class="face-guide" aria-hidden="true"></div>' : '<div class="card-guide" aria-hidden="true"></div>'}
-            <div class="camera-msg">جارٍ تشغيل الكاميرا…</div>
+            <div class="camera-msg">بنشغّل الكاميرا…</div>
           </div>
-          <p class="hint center">${facing === 'user' ? 'ضع وجهك داخل الإطار في إضاءة جيدة ثم اضغط «التقاط». لا يمكن رفع صورة من المعرض.' : 'ضع البطاقة داخل الإطار بوضوح ثم اضغط «التقاط».'}</p>
+          <p class="hint center">${facing === 'user' ? 'خلّي وشك جوه الإطار في نور كويس ودوس «صوّر».' : 'خلّي البطاقة جوه الإطار بوضوح ودوس «صوّر».'}</p>
           <div class="modal-actions">
-            <button class="btn btn-primary" data-snap disabled>📸 التقاط</button>
+            <button class="btn btn-primary" data-snap disabled>${icon('camera', { size: 18 })} صوّر</button>
             <button class="btn btn-ghost" data-cancel>إلغاء</button>
           </div>` : `
-          <div class="alert alert-info">متصفحك لا يدعم الكاميرا المباشرة داخل الصفحة. سيتم فتح كاميرا الجهاز مباشرة.</div>
-          <label class="btn btn-primary file-btn">📷 فتح الكاميرا<input type="file" accept="image/*" capture="${facing}" hidden data-fallback></label>
+          <div class="alert alert-info">${icon('info', { size: 18 })}<div>هنفتح كاميرا الجهاز على طول.</div></div>
+          <label class="btn btn-primary file-btn">${icon('camera', { size: 18 })} افتح الكاميرا<input type="file" accept="image/*" capture="${facing}" hidden data-fallback></label>
           <div class="modal-actions"><button class="btn btn-ghost" data-cancel>إلغاء</button></div>`}
       </div></div>`;
     document.body.appendChild(wrap);
@@ -59,7 +60,7 @@ export function openCamera({ facing = 'user', title = 'التقاط صورة' } 
         video.onloadedmetadata = () => { video.play(); msg.hidden = true; snap.disabled = false; };
       })
       .catch((err) => {
-        msg.innerHTML = `تعذر تشغيل الكاميرا (${esc(err.name || 'Error')}).<br>اسمح للتطبيق باستخدام الكاميرا من إعدادات المتصفح ثم أعد المحاولة.`;
+        msg.innerHTML = `مش قادرين نشغّل الكاميرا.<br>اسمح للتطبيق يستخدم الكاميرا من الإعدادات وجرّب تاني.<br><small style="opacity:.7">${esc(err.name || '')}</small>`;
         msg.classList.add('error');
       });
     snap.addEventListener('click', () => {

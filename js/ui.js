@@ -2,6 +2,7 @@
 import { esc, imageFileToDataURL, STATUS } from './utils.js';
 import db from './db.js';
 import { openCamera } from './camera.js';
+import { icon } from './icons.js';
 
 export const $ = (s, r = document) => r.querySelector(s);
 export const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
@@ -12,8 +13,11 @@ export function toast(msg, type = 'info', ms = 3500) {
   while (box.children.length >= 2) box.firstElementChild.remove(); // keep the stack short
   const el = document.createElement('div');
   el.className = `toast toast-${type}`;
-  el.setAttribute('role', 'status');
-  el.textContent = msg;
+  el.setAttribute('role', type === 'error' ? 'alert' : 'status');
+  if (type === 'ok' || type === 'error') el.innerHTML = icon(type === 'ok' ? 'circle-check' : 'circle-alert', { size: 18 });
+  const span = document.createElement('span');
+  span.textContent = msg; // user-supplied text never goes through innerHTML
+  el.appendChild(span);
   box.appendChild(el);
   setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 300); }, ms);
 }
@@ -23,7 +27,7 @@ export function modal({ title, body, actions = [], wide = false, onClose }) {
   const wrap = document.createElement('div');
   wrap.className = 'modal-backdrop';
   wrap.innerHTML = `<div class="modal ${wide ? 'modal-wide' : ''}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
-    <div class="modal-head"><h3>${esc(title)}</h3><button class="icon-btn" data-close aria-label="إغلاق">✕</button></div>
+    <div class="modal-head"><h3>${esc(title)}</h3><button class="icon-btn" data-close aria-label="إغلاق">${icon('x')}</button></div>
     <div class="modal-body">${body}</div>
     ${actions.length ? `<div class="modal-actions">${actions.map((a, i) => `<button class="btn ${a.cls || ''}" data-act="${i}">${esc(a.label)}</button>`).join('')}</div>` : ''}
   </div>`;
@@ -38,11 +42,11 @@ export function modal({ title, body, actions = [], wide = false, onClose }) {
   return { el: wrap, close };
 }
 
-export function confirmDialog(text, { okLabel = 'تأكيد', danger = false } = {}) {
+export function confirmDialog(text, { okLabel = 'أيوه', danger = false } = {}) {
   return new Promise((resolve) => {
     let done = false;
     modal({
-      title: 'تأكيد', body: `<p>${esc(text)}</p>`,
+      title: 'متأكد؟', body: `<p>${esc(text)}</p>`,
       actions: [
         { label: okLabel, cls: danger ? 'btn-danger' : 'btn-primary', onClick: (c) => { done = true; c(); resolve(true); } },
         { label: 'إلغاء', cls: 'btn-ghost', onClick: (c) => c() },
@@ -59,7 +63,7 @@ export function promptDialog(title, label, { required = true, multiline = true }
       title,
       body: `<label class="field"><span>${esc(label)}</span>${multiline ? '<textarea rows="3" id="prompt-input"></textarea>' : '<input id="prompt-input">'}</label>`,
       actions: [
-        { label: 'حفظ', cls: 'btn-primary', onClick: (c, w) => { const v = w.querySelector('#prompt-input').value.trim(); if (required && !v) { toast('هذا الحقل مطلوب', 'error'); return; } done = true; c(); resolve(v); } },
+        { label: 'احفظ', cls: 'btn-primary', onClick: (c, w) => { const v = w.querySelector('#prompt-input').value.trim(); if (required && !v) { toast('الخانة دي مطلوبة', 'error'); return; } done = true; c(); resolve(v); } },
         { label: 'إلغاء', cls: 'btn-ghost', onClick: (c) => c() },
       ],
       onClose: () => { if (!done) resolve(null); },
@@ -75,9 +79,9 @@ export const statusBadge = (s) => badge(STATUS[s]?.label || s, STATUS[s]?.cls);
 export async function hydrateImages(root = document) {
   await Promise.all($$('img[data-file]', root).map(async (img) => {
     const id = img.dataset.file;
-    if (!id || id === 'null') { img.replaceWith(Object.assign(document.createElement('div'), { className: 'img-missing', textContent: 'لا توجد صورة' })); return; }
+    if (!id || id === 'null') { img.replaceWith(Object.assign(document.createElement('div'), { className: 'img-missing ' + img.className.replace('thumb', ''), textContent: 'مفيش صورة' })); return; }
     const src = await db.files.get(id);
-    if (src) img.src = src; else img.alt = 'الصورة غير متاحة';
+    if (src) img.src = src; else img.alt = 'الصورة مش متاحة';
     img.addEventListener('click', () => modal({ title: img.alt || 'صورة', body: `<img class="zoom-img" src="${src}" alt="">`, wide: true }));
   }));
 }
@@ -94,11 +98,11 @@ export function photoField({ name, label, hint = '', required = false, mode = 'u
   return `<div class="photo-field" data-photo="${name}" data-mode="${mode}" data-facing="${facing}" ${required ? 'data-required="1"' : ''}>
     <div class="photo-label">${esc(label)} ${required ? '<span class="req">*</span>' : '<span class="opt">(اختياري)</span>'}</div>
     ${hint ? `<div class="hint">${esc(hint)}</div>` : ''}
-    <div class="photo-preview" hidden><img alt=""><button type="button" class="btn btn-sm btn-ghost" data-photo-clear>إزالة</button></div>
+    <div class="photo-preview" hidden><img alt=""><span class="photo-ok">${icon('check', { size: 16 })} تمام</span><button type="button" class="btn btn-sm btn-ghost" data-photo-clear>شيل الصورة</button></div>
     <div class="photo-actions">
       ${mode === 'live'
-        ? `<button type="button" class="btn btn-outline" data-live-cam>📷 التقاط مباشر بالكاميرا</button>`
-        : `<label class="btn btn-outline file-btn">📎 اختر صورة أو صوّر<input type="file" accept="image/*" ${cap} data-photo-input="${name}" hidden></label>`}
+        ? `<button type="button" class="btn btn-outline" data-live-cam>${icon('camera', { size: 18 })} صوّر دلوقتي</button>`
+        : `<label class="btn btn-outline file-btn">${icon('image-plus', { size: 18 })} اختار صورة أو صوّر<input type="file" accept="image/*" ${cap} data-photo-input="${name}" hidden></label>`}
     </div>
   </div>`;
 }
@@ -141,10 +145,21 @@ export function checkPhotoFields(root, state) {
   return ok;
 }
 
-export function emptyState(icon, text, extra = '') {
-  return `<div class="empty"><div class="empty-icon">${icon}</div><p>${esc(text)}</p>${extra}</div>`;
+/** Empty state: icon name (Lucide), title, optional short text and action HTML */
+export function emptyState(iconName, title, { text = '', action = '', inCard = false } = {}) {
+  return `<div class="empty ${inCard ? 'in-card' : ''}"><div class="empty-icon">${icon(iconName, { size: 24 })}</div><div class="empty-title">${esc(title)}</div>${text ? `<p>${esc(text)}</p>` : ''}${action}</div>`;
 }
 
-export const safetyNote = (compact = false) => `<div class="alert alert-warn ${compact ? 'alert-compact' : ''}" role="note">
-  <strong>⚠️ تنبيه أمان:</strong> لا ترسل أي أموال لأي شخص يدّعي أنه وجد هاتفك أو يطلب «مكافأة» مقدماً أو «مصاريف شحن». قابل الطرف الآخر فقط في مكان عام أو في محل فني صيانة موثّق داخل التطبيق، ولا تشارك رموز التحقق (OTP) أو كلمات المرور مع أحد.
-</div>`;
+/** Error state with a retry button (re-renders the current route) */
+export function errorState(message) {
+  return `<div class="empty error-state" role="alert"><div class="empty-icon">${icon('circle-alert', { size: 24 })}</div><div class="empty-title">حصلت مشكلة</div>
+    <p>${esc(message || 'حاول تاني بعد شوية.')}</p><button class="btn btn-outline" data-retry>${icon('refresh-cw', { size: 18 })} حاول تاني</button></div>`;
+}
+
+export const skeleton = (cards = 2) => `<div class="loading" aria-label="جارٍ التحميل"><div class="skel skel-title"></div>${'<div class="skel skel-card"></div>'.repeat(cards)}</div>`;
+
+export const alertBox = (type, iconName, html) => `<div class="alert alert-${type}" role="note">${icon(iconName, { size: 18 })}<div>${html}</div></div>`;
+
+export const safetyNote = (compact = false) => `<div class="alert alert-warn ${compact ? 'alert-compact' : ''}" role="note">${icon('shield-alert', { size: 18 })}<div>
+  <b>خلّي بالك:</b> متحوّلش فلوس لحد بيقول إنه لقى موبايلك أو بيطلب «حلاوة» أو مصاريف شحن. قابل الشخص في مكان عام أو عند فني موثّق في التطبيق، ومتدّيش حد كود التحقق أو كلمة السر.
+</div></div>`;

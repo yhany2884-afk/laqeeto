@@ -3,14 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>لقيته — سجل الهواتف المسروقة | Stolen Phone Registry</title>
-  <meta name="description" content="لقيته: افحص رقم IMEI لأي هاتف وأبلغ عن هاتفك المسروق أو المفقود وتواصل بأمان مع من وجده. Stolen Phone Registry (prototype).">
-  <meta name="theme-color" content="#0f766e">
+  <title>لقيته — اتأكد من الموبايل قبل ما تشتريه</title>
+  <meta name="description" content="لقيته: اكتب رقم الـ IMEI واعرف لو الموبايل متبلّغ عنه إنه مسروق أو ضايع. بلّغ عن موبايلك واتواصل بأمان مع اللي لقاه.">
+  <meta name="theme-color" content="#16499b">
   <meta name="color-scheme" content="light">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
   <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
-  <!-- iOS -->
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
@@ -18,27 +17,96 @@
   <meta name="apple-mobile-web-app-title" content="لقيته">
   <meta name="application-name" content="لقيته">
   <meta name="format-detection" content="telephone=no">
+  <link rel="preload" href="fonts/plex-arabic-arabic-400.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/plex-arabic-arabic-700.woff2" as="font" type="font/woff2" crossorigin>
+  <style>
+    /* Launch / exit animation — inline so it is the very first paint (same colour as the native splash: no white flash) */
+    .splash { position: fixed; inset: 0; z-index: 1000; background: #16499b; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+      color: #fff; cursor: pointer; transition: opacity .26s ease; -webkit-tap-highlight-color: transparent; }
+    .splash.out { opacity: 0; pointer-events: none; }
+    .splash.exit { opacity: 0; transition: opacity .16s ease; cursor: default; }
+    .splash.exit.in { opacity: 1; }
+    .sp-mark { width: 116px; height: 116px; overflow: visible; }
+    .sp-shackle { transform-box: view-box; transform-origin: 222px 262px; }
+    .sp-check { stroke-dasharray: 90; stroke-dashoffset: 90; }
+    .sp-word { font-family: "Plex Arabic", "Segoe UI", Tahoma, sans-serif; font-weight: 700; font-size: 34px; line-height: 1; opacity: 0; transform: translateY(6px); }
+    .sp-skip { position: absolute; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); inset-inline-start: 50%; transform: translateX(50%); background: none; border: 0; color: rgba(255,255,255,.72);
+      font: 500 14px "Plex Arabic", Tahoma, sans-serif; padding: 8px 14px; cursor: pointer; }
+    .splash.play .sp-shackle { animation: sp-unlock .42s cubic-bezier(.3,1.5,.5,1) .16s forwards; }
+    .splash.play .sp-key { animation: sp-fade .18s ease .46s forwards; }
+    .splash.play .sp-check { animation: sp-draw .3s ease-out .54s forwards; }
+    .splash.play .sp-word { animation: sp-word .36s ease-out .36s forwards; }
+    .splash.static .sp-word, .splash.exit .sp-word { opacity: 1; transform: none; }
+    /* exit: start unlocked, then lock */
+    .splash.exit .sp-shackle { transform: translateY(-22px) rotate(-14deg); }
+    .splash.exit .sp-key { opacity: 0; }
+    .splash.exit .sp-check { stroke-dashoffset: 0; }
+    .splash.exit.lock .sp-shackle { animation: sp-lock .26s cubic-bezier(.5,0,.6,1) forwards; }
+    .splash.exit.lock .sp-check { animation: sp-undraw .14s ease forwards; }
+    .splash.exit.lock .sp-key { animation: sp-fade-in .14s ease .14s forwards; }
+    @keyframes sp-unlock { to { transform: translateY(-22px) rotate(-14deg); } }
+    @keyframes sp-lock { from { transform: translateY(-22px) rotate(-14deg); } to { transform: none; } }
+    @keyframes sp-fade { to { opacity: 0; } }
+    @keyframes sp-fade-in { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes sp-draw { to { stroke-dashoffset: 0; } }
+    @keyframes sp-undraw { from { stroke-dashoffset: 0; } to { stroke-dashoffset: 90; } }
+    @keyframes sp-word { to { opacity: 1; transform: none; } }
+    @media (prefers-reduced-motion: reduce) { .splash * { animation: none !important; } }
+  </style>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <a class="skip-link" href="#view">تخطَّ إلى المحتوى</a>
+  <div id="splash" class="splash" role="status" aria-label="لقيته">
+    <svg class="sp-mark" viewBox="0 0 512 512" aria-hidden="true">
+      <g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="160" y="88" width="192" height="336" rx="40" stroke-width="24"/>
+        <path d="M232 132h48" stroke-width="16"/>
+        <path class="sp-shackle" d="M222 262v-26a34 34 0 0 1 68 0v26" stroke-width="20"/>
+      </g>
+      <rect x="202" y="258" width="108" height="88" rx="16" fill="#fff"/>
+      <g class="sp-key"><circle cx="256" cy="296" r="11" fill="#16499b"/><path d="M256 300v18" stroke="#16499b" stroke-width="10" stroke-linecap="round"/></g>
+      <path class="sp-check" d="M231 302l17 17 33-35" fill="none" stroke="#16499b" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div class="sp-word">لقيته</div>
+    <button class="sp-skip" type="button">تخطّي</button>
+  </div>
+  <script>
+    // Launch animation: once per app launch (sessionStorage), skippable, respects reduced motion.
+    (function () {
+      var s = document.getElementById('splash'); if (!s) return;
+      var seen = false;
+      try { seen = sessionStorage.getItem('lq-splash') === '1'; sessionStorage.setItem('lq-splash', '1'); } catch (e) { /* private mode */ }
+      if (seen || /[?&]nosplash\b/.test(location.search)) { s.remove(); return; }
+      var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+      function done() {
+        if (!s.isConnected || s.classList.contains('out')) return;
+        s.classList.add('out'); document.removeEventListener('keydown', key);
+        setTimeout(function () { s.remove(); }, 280);
+      }
+      function key(e) { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') done(); }
+      s.addEventListener('click', done); document.addEventListener('keydown', key);
+      s.classList.add(reduce ? 'static' : 'play');
+      setTimeout(done, reduce ? 400 : 1250);
+    })();
+  </script>
+  <a class="skip-link" href="#view">انتقل للمحتوى</a>
   <header class="app-header">
     <div class="header-inner">
       <a href="#/" class="brand" aria-label="لقيته — الرئيسية">
-        <img src="icons/icon.svg" alt="" width="36" height="36">
-        <span class="brand-text"><b>لقيته</b><small lang="en" dir="ltr">Stolen Phone Registry</small></span>
+        <img class="brand-mark" src="icons/icon.svg" alt="" width="30" height="30">
+        <span class="brand-name">لقيته</span>
       </a>
       <nav class="top-nav" id="top-nav" aria-label="التنقل الرئيسي"></nav>
       <div class="header-actions">
-        <button class="btn btn-sm btn-primary" id="install-btn" hidden aria-label="تثبيت التطبيق">⬇️ <span class="lbl-long">تثبيت التطبيق</span><span class="lbl-short">تثبيت</span></button>
+        <button class="btn btn-sm btn-outline" id="install-btn" hidden>تثبيت التطبيق</button>
         <div id="user-area" class="user-area"></div>
       </div>
     </div>
   </header>
-  <div class="demo-banner" id="status-banner" role="note" hidden></div>
+  <div class="status-banner" id="status-banner" role="note" hidden></div>
   <main id="view" class="container" tabindex="-1">
-    <noscript><p>يحتاج هذا التطبيق إلى تفعيل JavaScript.</p></noscript>
-    <div class="loading">جارٍ التحميل…</div>
+    <noscript><p>لازم تفعّل JavaScript في المتصفح عشان التطبيق يشتغل.</p></noscript>
+    <div class="loading" aria-label="جارٍ التحميل"><div class="skel skel-title"></div><div class="skel skel-card"></div><div class="skel skel-card"></div></div>
   </main>
   <nav class="bottom-nav" id="bottom-nav" aria-label="التنقل"></nav>
   <div id="toasts" class="toasts" aria-live="polite"></div>

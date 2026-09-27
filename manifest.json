@@ -1,26 +1,72 @@
 {
-  "name": "لقيته — سجل الهواتف المسروقة",
+  "name": "لقيته",
   "short_name": "لقيته",
-  "description": "افحص رقم IMEI لأي هاتف، وأبلغ عن هاتفك المسروق أو المفقود، وتواصل بأمان مع من وجده. Stolen Phone Registry (prototype).",
+  "description": "اتأكد من الموبايل قبل ما تشتريه: افحص الـ IMEI، وبلّغ عن موبايلك المسروق أو الضايع، واتواصل بأمان مع اللي لقاه.",
   "id": "./",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "display_override": ["standalone", "minimal-ui"],
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
   "orientation": "any",
   "dir": "rtl",
   "lang": "ar",
-  "theme_color": "#0f766e",
-  "background_color": "#f6f8fb",
-  "categories": ["utilities", "security"],
+  "theme_color": "#16499b",
+  "background_color": "#16499b",
+  "categories": [
+    "utilities",
+    "security"
+  ],
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
-    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ],
   "shortcuts": [
-    { "name": "فحص IMEI", "short_name": "فحص", "url": "./#/search", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
-    { "name": "إبلاغ عن هاتف", "short_name": "إبلاغ", "url": "./#/report/new", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+    {
+      "name": "افحص موبايل",
+      "short_name": "افحص",
+      "url": "./#/search",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "بلّغ عن موبايل",
+      "short_name": "بلّغ",
+      "url": "./#/report/new",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
   ]
 }
