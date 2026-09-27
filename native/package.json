@@ -1,7 +1,7 @@
 {
   "name": "laqeeto-native",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.2.1",
   "description": "Laqeeto (لقيته) — Stolen Phone Registry: native wrappers (Capacitor Android/iOS, Electron Windows/macOS) around the web app at the repo root",
   "author": "Youssef <youssef@users.noreply.github.com>",
   "homepage": "https://yhany2884-afk.github.io/laqeeto/",
