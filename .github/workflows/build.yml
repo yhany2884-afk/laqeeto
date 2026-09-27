@@ -43,7 +43,7 @@ jobs:
   android:
     needs: version
     runs-on: ubuntu-latest
-    defaults: { run: { working-directory: native } }
+    defaults: { run: { working-directory: native, shell: bash } }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -63,7 +63,7 @@ jobs:
           LAQEETO_KEYSTORE_PATH: ${{ runner.temp }}/laqeeto-release.jks
           LAQEETO_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           LAQEETO_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          LAQEETO_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          LAQEETO_KEY_ALIAS: laqeeto   # not secret (alias only)
           LAQEETO_VERSION_NAME: ${{ needs.version.outputs.name }}
           LAQEETO_VERSION_CODE: ${{ needs.version.outputs.code }}
         run: chmod +x gradlew && ./gradlew assembleRelease --no-daemon --stacktrace
@@ -82,7 +82,7 @@ jobs:
   windows:
     needs: version
     runs-on: windows-latest
-    defaults: { run: { working-directory: native } }
+    defaults: { run: { working-directory: native, shell: bash } }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -98,7 +98,7 @@ jobs:
   macos:
     needs: version
     runs-on: macos-latest
-    defaults: { run: { working-directory: native } }
+    defaults: { run: { working-directory: native, shell: bash } }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -123,7 +123,7 @@ jobs:
     needs: version
     runs-on: macos-latest
     continue-on-error: true
-    defaults: { run: { working-directory: native } }
+    defaults: { run: { working-directory: native, shell: bash } }
     steps:
       - uses: actions/checkout@v7
       - uses: maxim-lobanov/setup-xcode@v1

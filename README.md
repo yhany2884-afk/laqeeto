@@ -140,7 +140,7 @@ native/                 التطبيقات المستقلة (لا تُنشر ع�
 
 ## بناء التطبيقات المستقلة
 جذر المستودع هو **المصدر الوحيد** لكود الواجهة؛ مجلد `native/` يغلّفه فقط:
-- **أندرويد (Capacitor):** APK موقّع بمفتاح إصدار محفوظ في GitHub Secrets فقط (`ANDROID_KEYSTORE_BASE64`، `ANDROID_KEYSTORE_PASSWORD`، `ANDROID_KEY_PASSWORD`، `ANDROID_KEY_ALIAS`). إذن `CAMERA` مضاف، وCapacitor يمرر طلبات الكاميرا من WebView (السيلفي المباشر و`<input capture>`).
+- **أندرويد (Capacitor):** APK موقّع بمفتاح إصدار محفوظ في GitHub Secrets فقط (`ANDROID_KEYSTORE_BASE64`، `ANDROID_KEYSTORE_PASSWORD`، `ANDROID_KEY_PASSWORD`؛ اسم المفتاح `laqeeto`). إذن `CAMERA` مضاف، وCapacitor يمرر طلبات الكاميرا من WebView (السيلفي المباشر و`<input capture>`).
 - **ويندوز وماك (Electron):** الواجهة تُحمّل من بروتوكول خاص آمن `app://laqeeto/`، الكاميرا فقط مسموحة (الميكروفون وغيره مرفوض)، والروابط الخارجية تفتح في المتصفح. الماك موقّع ad-hoc بدون توثيق Apple.
 - **آيفون (Capacitor):** IPA **غير موقّع** يُبنى على macOS بـ `xcodebuild archive CODE_SIGNING_ALLOWED=NO`.
 - في التطبيقات المستقلة لا يُسجَّل Service Worker ولا تظهر أزرار «تثبيت التطبيق».
