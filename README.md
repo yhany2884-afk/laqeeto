@@ -181,6 +181,7 @@ npx @capacitor/assets generate --android --ios   # إعادة توليد الأ�
 - **الموديلات** في bucket خاص `ml-models` (مفيش أي policy للعملاء): `python3 supabase/upload_models.py` (التعليمات جوه الملف).
 - **النشر:** `SUPABASE_TOKEN_FILE=... python3 supabase/functions_api.py deploy supabase/functions/face-match face-match` (التوكن محتاج صلاحية `edge_functions_write`).
 - **الاختبارات:** `FACE_FIXTURES=<dir> deno test -A supabase/functions/face-match/handler.test.ts` (الـ auth والصلاحيات والمطابقة بصور حقيقية مع mock للـ API)، و`python3 tests/face_match_db_test.py` (سياسة الاعتماد في قاعدة البيانات).
+  و`python3 tests/face_match_live_test.py` (على السيرفر الحقيقي: فنيين مؤقتين، زوج متطابق بيتفعّل تلقائي، زوج مش متطابق بيفضل pending، ومحاولات تفعيل ذاتي بتفشل).
 - **حدود:** مفيش liveness حقيقي (غير إن السيلفي لازم يتصوّر من الكاميرا جوه التطبيق)، وصور البطايق القديمة أو الصغيرة بتدي درجات أقل، فبتروح للمراجعة اليدوية. المطابقة بتثبت إن اللي في السيلفي هو صاحب الصورة اللي في البطاقة، مش إن البطاقة نفسها سليمة.
 
 ## بوت تيليجرام (@laqeeto_help_bot)

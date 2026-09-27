@@ -75,7 +75,7 @@ create policy tmp_purge_delete on storage.objects for delete to authenticated
         out['files_left'] = int(sql(f"select count(*) from storage.objects where owner_id in ({ids})").strip())
     reports = f"select id from public.reports where owner_id in ({ids})"
     if audit:
-        out['audit_rows_deleted'] = int(sql(f"with d as (delete from public.audit_log where actor_id in ({ids}) or report_id in ({reports}) or details in (select email from auth.users where id in ({ids})) returning 1) select count(*) from d").strip())
+        out['audit_rows_deleted'] = int(sql(f"with d as (delete from public.audit_log where actor_id in ({ids}) or report_id in ({reports}) or details in (select email from auth.users where id in ({ids})) or meta->>'target_user' in ({ids}) or meta->>'dispute' in (select id::text from public.disputes where owner_id in ({ids}) or technician_id in ({ids}) or report_id in ({reports})) returning 1) select count(*) from d").strip())
     sql(f"""delete from private.rate_events where key ~ ({lit('(' + '|'.join(i for i, _, _ in users) + ')')})
        or key in (select 'guest:report:' || id::text from public.reports where owner_id in ({ids}));
 delete from auth.users where id in ({ids});""")

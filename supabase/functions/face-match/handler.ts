@@ -8,6 +8,8 @@ export type Deps = {
   /** Returns the ONNX runtime; `download` reads a file from the private model bucket (e.g. the WASM fallback binary). */
   getOrt: (download: (name: string) => Promise<Uint8Array>) => Promise<Ort | null>;
   modelBucket?: string;
+  /** Optional label of the engine actually used (e.g. 'native' / 'wasm'), stored with the result. */
+  engineName?: () => string | undefined;
 };
 
 const CORS = {
@@ -81,6 +83,7 @@ export function createHandler(deps: Deps) {
       result = { status: 'error', error: String((e as Error).message || e).slice(0, 200), model: MODEL_VERSION };
     }
     result.ms = Math.round(performance.now() - t0);
+    if (deps.engineName?.()) result.engine = deps.engineName();
     const saved = await rpc('record_face_match', { p_user: target, p_id_photo: docs.id_photo, p_selfie: docs.selfie, p_result: result, p_actor: caller.id });
     if (saved?.stale) return json({ stale: true }, 409);
     // technicians only learn whether they were approved; the score is for admins
